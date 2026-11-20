@@ -1,0 +1,8 @@
+id: partner-api
+kind: http_json
+location: https://api.example.com/v2/people
+auth: { type: bearer, token_env: PARTNER_API_TOKEN }
+pagination: { type: cursor, cursor_path: "$.meta.next", cursor_param: after }
+records_path: "$.data[*]"
+rate_limit_per_sec: 5
+natural_key: [id]

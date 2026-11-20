@@ -1,0 +1,7 @@
+source: partner-api
+version: 1
+fields:
+  name:  { from: "$.attributes.displayName", required: true }
+  email: { from: "$.attributes.contact.email", transform: lower }
+  date:  { from: "$.attributes.created", type: timestamp }
+extra: keep

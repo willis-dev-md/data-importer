@@ -1,0 +1,7 @@
+source: acme-csv
+version: 1
+fields:
+  name:  { from: ["First Name", "Last Name"], transform: 'concat(" ")', required: true }
+  email: { from: Email, transform: [trim, lower], validate: email }
+  date:  { from: Joined, type: date, format: "02/01/2006" }
+extra: keep

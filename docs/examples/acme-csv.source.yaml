@@ -1,0 +1,7 @@
+id: acme-csv
+kind: csv
+location: file:///data/acme/members.csv
+csv: { delimiter: ",", header: true, encoding: utf-8 }
+natural_key: [member_id]
+missing_policy: tombstone
+max_error_ratio: 0.05
