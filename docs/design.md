@@ -10,6 +10,7 @@ setup, store the data in a database, and expose it through a gRPC API.
 
 - Add a new setup by writing **configuration**, not code.
 - **Never lose source data**; keep what the source actually sent.
+- **Cadence is part of a source's setup** (daily, weekly, monthly or cron), run by a built-in scheduler.
 - Idempotent, observable imports (re-running a file does not duplicate data).
 - Serve a **stable, typed gRPC contract** regardless of source shape.
 - Change a mapping **without re-importing**.
@@ -17,7 +18,6 @@ setup, store the data in a database, and expose it through a gRPC API.
 ## 3. Non-goals (v1)
 
 - A UI for authoring mappings.
-- Built-in scheduler (use cron or the platform).
 - Streaming/CDC sources, GraphQL, XML, OAuth flows beyond bearer/API-key.
 - Multi-tenant authorisation beyond per-token source scoping.
 
@@ -53,7 +53,20 @@ setup, store the data in a database, and expose it through a gRPC API.
 5. **gRPC server** (`internal/server`): `DataService` (read), `SourceService` (sources/mappings),
    `ImportService` (control). Applies the active mapping on read.
 
-## 5. Key flows
+### Scheduler
+Each source declares its own `schedule` (see [mapping-spec](mapping-spec.md#schedule)). The scheduler runs inside
+`importer serve` and:
+1. Computes `sources.next_run_at` from the schedule and timezone; polls for due sources (every 30s).
+2. Claims a due source with `SELECT ... FOR UPDATE SKIP LOCKED` and a per-source advisory lock, so several
+   server replicas never run the same source twice and no leader election is needed.
+3. Starts a normal import run (`trigger = 'schedule'`), then computes the next `next_run_at` from the **scheduled**
+   time, not the finish time, so cadence does not drift.
+4. Applies `on_missed` after downtime: `run_once` (default: one catch-up run) or `skip`.
+5. Overlap policy is always skip: a source already running is not started again.
+Manual runs (`importer run`, `StartImport`) use the same path with `trigger = 'manual'`. Changing a schedule
+recomputes `next_run_at` immediately. A source can be paused with `enabled: false`.
+
+## 5a. Import and read flows
 
 ### Import
 1. `importer run --source <id>` (or `ImportService.StartImport`).

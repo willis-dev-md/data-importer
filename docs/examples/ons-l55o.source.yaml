@@ -10,3 +10,10 @@ csv:
 natural_key: ["@meta.CDID", period]
 missing_policy: keep        # history is cumulative; rows are not removed by the publisher
 max_error_ratio: 0.01
+schedule:
+  every: monthly
+  day_of_month: 18        # ONS publishes mid-month; check actual release dates
+  at: "09:30"
+  timezone: Europe/London
+  on_missed: run_once
+enabled: true

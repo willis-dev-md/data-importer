@@ -4,6 +4,7 @@
    the first source (ONS). Confirm whether other setups are also time series or a different entity.
 2. **Sync mode**: full snapshots, incremental feeds, or both per source? Affects `missing_policy`.
 3. **History**: is an append-only version history of raw records needed, or only the latest?
+3a. **Schedule defaults**: sensible default timezone and `on_missed`; should failed runs retry before the next slot?
 4. **API consumers**: internal services or external clients? Drives auth and rate limiting.
 5. **Exotic sources**: OAuth2 client-credentials, GraphQL, XML, SFTP, S3?
 6. **Retention and privacy**: does any source contain personal data? Per-source retention/deletion rules?

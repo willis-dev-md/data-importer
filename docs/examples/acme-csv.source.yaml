@@ -5,3 +5,4 @@ csv: { delimiter: ",", header: true, encoding: utf-8 }
 natural_key: [member_id]
 missing_policy: tombstone
 max_error_ratio: 0.05
+schedule: { every: weekly, day_of_week: monday, at: "06:00", timezone: Europe/London }

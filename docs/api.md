@@ -19,7 +19,10 @@ service SourceService {
 }
 
 service ImportService {
-  rpc StartImport(StartImportRequest) returns (ImportRun);
+  rpc StartImport(StartImportRequest) returns (ImportRun);          // manual run
+  rpc GetSchedule(GetScheduleRequest) returns (Schedule);           // schedule, next_run_at, last run
+  rpc SetSchedule(SetScheduleRequest) returns (Schedule);           // validates, recomputes next_run_at
+  rpc PauseSource(PauseSourceRequest) returns (Source);             // enabled=false
   rpc GetImportRun(GetImportRunRequest) returns (ImportRun);
   rpc ListImportRuns(ListImportRunsRequest) returns (ListImportRunsResponse);
   rpc WatchImportRun(GetImportRunRequest) returns (stream ImportRun);

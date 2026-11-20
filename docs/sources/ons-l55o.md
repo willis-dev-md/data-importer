@@ -34,5 +34,5 @@ See [`../examples/ons-l55o.source.yaml`](../examples/ons-l55o.source.yaml) and
 [`../examples/ons-l55o.mapping.yaml`](../examples/ons-l55o.mapping.yaml).
 
 ## Scheduling
-`Next release` is in the preamble. A later enhancement can read it from the last run's `source_meta` and schedule
+Cadence is set in the source's `schedule` (the example uses monthly). `Next release` is in the preamble. A later enhancement can read it from the last run's `source_meta` and schedule
 the next fetch for that date; v1 just runs on a cron (e.g. daily), skipping unchanged data via `content_hash`.

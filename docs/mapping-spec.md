@@ -4,6 +4,26 @@ Two YAML documents per setup: a **source** (how to fetch/parse) and a **mapping*
 Both are validated against JSON Schema before being stored. Mappings are versioned; saving creates a new
 version and `active_mapping_version` is switched explicitly.
 
+## Schedule
+
+Every source (any kind) defines when it is imported:
+
+```yaml
+schedule:
+  every: daily            # daily | weekly | monthly   (or `cron: "0 6 * * 1"`)
+  at: "06:00"             # local time in `timezone`
+  day_of_week: monday     # weekly only
+  day_of_month: 18        # monthly only; 1-28, or `last`
+  timezone: Europe/London
+  on_missed: run_once     # run_once | skip
+  jitter: 5m              # optional random delay to spread load
+enabled: true
+```
+
+Rules: exactly one of `every` or `cron`; `day_of_month` above 28 is rejected (use `last`); DST transitions
+follow the timezone database (a non-existent local time runs at the next valid instant). Schedule changes take
+effect on save. A source with no `schedule` is manual-only.
+
 ## Source: CSV
 
 ```yaml

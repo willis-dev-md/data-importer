@@ -6,6 +6,10 @@ CREATE TABLE sources (
   kind          text NOT NULL CHECK (kind IN ('csv','http_json')),
   config        jsonb NOT NULL,              -- parsed source config (no secrets)
   active_mapping_version int,
+  schedule      jsonb,                       -- null = manual only
+  enabled       boolean NOT NULL DEFAULT true,
+  next_run_at   timestamptz,                 -- maintained by the scheduler
+  last_scheduled_at timestamptz,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 
@@ -22,6 +26,9 @@ CREATE TABLE import_runs (
   id            bigserial PRIMARY KEY,
   source_id     text NOT NULL REFERENCES sources(id),
   status        text NOT NULL CHECK (status IN ('running','succeeded','failed','aborted')),
+  trigger       text NOT NULL DEFAULT 'manual' CHECK (trigger IN ('manual','schedule')),
+  scheduled_for timestamptz,                 -- the slot this run satisfies
+  source_meta   jsonb,                       -- parsed preamble metadata
   started_at    timestamptz NOT NULL DEFAULT now(),
   finished_at   timestamptz,
   inserted      int NOT NULL DEFAULT 0,
@@ -32,6 +39,8 @@ CREATE TABLE import_runs (
   shape         jsonb,                       -- field name -> observed types/counts
   error         text
 );
+
+CREATE INDEX sources_due ON sources (next_run_at) WHERE enabled AND schedule IS NOT NULL;
 
 CREATE TABLE raw_records (
   source_id     text NOT NULL REFERENCES sources(id),

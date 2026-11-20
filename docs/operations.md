@@ -18,11 +18,14 @@
     importer mapping validate <file>
     importer mapping materialize <source>
 
-Scheduling: run `importer run` from cron/Kubernetes CronJob. Concurrent runs for one source are prevented with a
-Postgres advisory lock.
+Scheduling: built in. `importer serve` runs the scheduler for every source with a `schedule`, so deploy at least
+one replica (several are safe). Concurrent runs for one source are prevented with row locks plus a Postgres
+advisory lock. `importer schedule list` shows each source's next run; `importer run --source <id>` forces one.
+Outside `serve`, an external cron can still call `importer run`.
 
 ## Observability
 - Structured JSON logs with `run_id` and `source_id`.
+- Alert on `import_last_success_age_seconds` exceeding the source's expected interval (a missed or failing schedule).
 - Prometheus metrics: `import_records_total{source,outcome}`, `import_run_duration_seconds`,
   `grpc_server_handled_total`, `mapping_errors_total{source,code}`.
 - Health: gRPC health service; `importer serve` readiness checks DB.

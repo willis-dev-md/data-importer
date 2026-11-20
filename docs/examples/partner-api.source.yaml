@@ -6,3 +6,4 @@ pagination: { type: cursor, cursor_path: "$.meta.next", cursor_param: after }
 records_path: "$.data[*]"
 rate_limit_per_sec: 5
 natural_key: [id]
+schedule: { every: daily, at: "02:00", timezone: UTC, jitter: 5m }

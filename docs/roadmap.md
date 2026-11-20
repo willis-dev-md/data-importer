@@ -9,7 +9,7 @@
 | M4 | Mapping engine | Parser, validator, transforms, `period` type, `@meta` refs, error model, dry-run |
 | M5 | gRPC read API | `DataService` with filters, keyset paging, mapping on read |
 | M6 | HTTP JSON adapter | Auth, pagination types, retries, rate limit |
-| M7 | Source/Import services | `SourceService`, `ImportService`, mapping versioning |
+| M7 | Scheduler + services | Schedule parsing/validation, `next_run_at`, SKIP LOCKED claiming, catch-up policy; `SourceService`, `ImportService`, mapping versioning |
 | M8 | Hardening | Auth interceptor, TLS, metrics, rollback, tombstones |
 | M9 | Performance | Indexes, optional materialized views, load test |
 
