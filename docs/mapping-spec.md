@@ -69,16 +69,45 @@ kind: xlsx
 location: https://example.org/file.xlsx
 change_detection: [etag, last_modified, content_hash]
 xlsx:
-  sheet: "Sheet name"        # exact name; hidden sheets are allowed; or `sheet_index`
+  sheet: "Sheet name"        # exact name; hidden sheets are allowed; or `sheet_index`; see `sheets` for several
   start_row: 8
   end_row: null              # default: last row
   header: false              # true => header row index in `header_row`
+  sheets: ["Sheet name"]    # or { except: [Notes] } for every other sheet; the sheet name is available as @ctx.sheet
   columns: { A: year, B: day, C: month, D: rate }   # letters -> names (required when header: false)
   use_cached_values: true    # formulas are read as last saved values; formulas are never evaluated
 ```
 Merged cells are read as their top-left value only; dates stored as Excel serial numbers are returned as dates.
 Macros, external links and embedded content are ignored. Files are parsed with limits on size, rows and
 uncompressed size (zip-bomb protection).
+
+## Static context
+A source (usually a group member) can carry static values that mappings read as `@ctx.<name>`:
+
+```yaml
+context: { year: 2026, status: provisional }
+```
+Values set by pipeline `section` steps and the sheet name (`@ctx.sheet`) live in the same namespace.
+
+## Archives
+A file can be a zip containing the real file(s); pick the member by regex. Archives are read with limits on
+member size, ratio and count (zip-bomb protection) and member names are never used as filesystem paths.
+
+```yaml
+location: https://example.org/data.zip
+archive: { type: zip, member: '(?i)Table 20\.7a .*\.xlsx$' }   # exactly one member must match
+```
+
+## Location resolution (files whose URL changes)
+Publishers often put the date in the file name (`Average-prices-2026-09.csv`). `resolve` generates candidate
+values for a placeholder, newest first, and the first URL that answers (HEAD, falling back to a ranged GET) wins:
+
+```yaml
+location: https://example.org/files/Average-prices-{ym}.csv
+resolve:
+  ym: { kind: month, layout: "2006-01", start: "-1m", back: 6 }   # this month minus 1, then 5 earlier
+```
+If no candidate answers, the run fails with the list of URLs tried. The chosen URL is recorded on the run.
 
 ## Row pipeline (`table:`) for CSV and XLSX
 
@@ -91,8 +120,10 @@ Steps run in order; the output rows are what is stored. Closed set:
 | `drop_if_empty: [cols]` | drop rows where all listed columns are empty |
 | `section: {column, match, set, default}` | rows whose `column` matches the regex are headings: they set a context variable (available as `@ctx.<set>`, and stored in `_ctx`) and are dropped; `default` applies before the first heading |
 | `fill_down: {columns, reset_on}` | carry the last non-empty value down; optionally reset on a section change |
-| `normalize: {col: transforms}` | `trim`, `lower`, `upper`, `to_int`, `to_string`, `collapse_ws` (fixes mixed types and spacing) |
-| `unpivot: {id, columns, name, value}` | wide to long: each listed column becomes a row with `name`/`value` |
+| `normalize: {col: transforms}` | `trim`, `lower`, `upper`, `to_int`, `to_string`, `collapse_ws`, `to_number` (turns numeric text into numbers; leaves markers such as `x` untouched) |
+| `unpivot: {id, columns, name, value}` | wide to long: each listed column becomes a row with `name`/`value`. `columns` is a list, or a map `column: label` (the label is stored in `name`). Rows whose value is empty are dropped. Columns not listed are not carried over (the stored source file keeps everything, see ADR-0004) |
+| `split: {column, regex, optional}` | named capture groups become new columns (e.g. `age_band` and `soc_name` out of `18-21   Corporate managers`); a non-matching row gets empty values when `optional: true`, else is a `RowError` |
+| `strip: {column: [chars]}` | remove characters (e.g. the leading `'` in ASHE SOC codes) |
 
 Every stored row also gets `_source: {sheet, row}` (or line number) for traceability.
 
@@ -139,12 +170,26 @@ fields:
 extra: keep                        # keep | drop: unmapped source fields into Record.extra
 ```
 
+### Dimensions
+Free-form descriptors of what an observation is about. Each entry is a normal field spec; empty results are
+omitted. Output as `Record.fields.dimensions` (a map of strings).
+
+```yaml
+dimensions:
+  area_code: { from: Area_Code }
+  age_band:  { from: age_band, default: all }
+```
+
 ### Field options
 | Option | Meaning |
 |---|---|
 | `from` | source field name(s) or JSONPath (`$.a.b`); list = multiple inputs |
 | `type` | `string` `int` `decimal` `bool` `date` `timestamp` `period` (default `string`) |
 | `const` | fixed value instead of `from` (e.g. `unit: "%"`) |
+| `template` | build a string from placeholders, e.g. `"ukhpi:{measure_col}:{Area_Code}"`; `{@ctx.x}` and `{@meta.x}` work too; any empty placeholder is an error unless `empty_ok: true` |
+| `null_markers` | list of publisher markers (`["x","..",":","-"]`) that mean "no value": the field becomes null (not an error) |
+| `flag` | canonical field that receives the matched marker (e.g. `flag: quality_flag`) |
+| `precision` | force period precision (`year\|quarter\|month\|day`) when the layout carries more (e.g. an ISO date that is always the 1st of a month) |
 | `@ctx.<name>` | in `from`: a context variable set by a `section` step |
 | `format` | parse layout (or a list of layouts tried in order) for dates/timestamps/periods. With several `from` inputs the non-empty ones are joined with spaces in the order listed, so list them in layout order (`[day, month, year]` for `"2 Jan 2006"`). Month names are case-insensitive |
 | `transform` | ordered list: `trim` `lower` `upper` `concat(sep)` `split(sep)` `regex(pat,repl)` `coalesce` |
@@ -158,7 +203,7 @@ Transforms are a closed, pure set (no scripting) so mappings stay safe and testa
 ### Period type
 `type: period` parses publisher period labels into a normalised value with three outputs:
 `period_type` (`year|quarter|month|day`), `period_start` (date) and `period_end` (date).
-Built-in layouts: `YYYY`, `YYYY Qn`, `YYYY MON` (English month abbreviations). With an explicit `format`, the
+Built-in layouts: `YYYY`, `tax_year_ending` (input is the year in which the tax year ends: `2026` gives 2025-04-06 to 2026-04-05, `period_type: tax_year`), `YYYY Qn`, `YYYY MON` (English month abbreviations). With an explicit `format`, the
 resulting precision follows the layout that matched: a layout with a day gives `period_type: day`
 (start = end = that date), a layout with only month and year gives `month`. This is how rate events with and
 without a day (BoE) are handled. Unparseable labels give `PARSE_FAILED`.

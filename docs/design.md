@@ -118,10 +118,28 @@ variable part (the mapping) must be cheap to change and must not gate loading.
       imported_at   Timestamp
     }
 
-The canonical field set is declared in `canonical-schema.yaml` (name, type, required). The first source (ONS time
-series, see [sources/ons-l55o.md](sources/ons-l55o.md)) makes the initial canonical entity a **time-series
-observation**: `series_id`, `series_title`, `period_type` (year/quarter/month/day), `period_start`, `period_end`, `value`, `unit`
-(see [open-questions](open-questions.md) for whether other setups share it). Mappings are
+The canonical field set is declared in `canonical-schema.yaml` (name, type, required). It is a generic
+**observation**: a measured `value` for a `measure` (optionally a `statistic`), described by free-form
+`dimensions` (area, age band, occupation, property type, ...), at a time period. Version 2 of the schema (after
+the ONS, Bank of England, HM Land Registry and ASHE sources) is:
+
+    series_id      string  required   stable id of the series (built with `template:`)
+    series_title   string
+    measure        string  required   e.g. cpih_annual_rate, bank_rate, average_price, annual_pay_gross
+    statistic      string             e.g. median, mean, jobs (empty when the measure is the statistic)
+    dimensions     map<string,string> e.g. {area_code: E92000001, age_band: 22-29, soc_code: 11}
+    period_type    enum    required   year | tax_year | quarter | month | day
+    period_start   date    required
+    period_end     date    required
+    value          decimal            null when the publisher suppresses it (see quality_flag)
+    unit           string             GBP, %, thousand_jobs, index, ...
+    status         string             provisional | revised | final
+    quality_flag   string             publisher marker for suppressed/unreliable values (x, .., :, -)
+
+Original summary kept for orientation: All four sources so far (ONS
+[CPIH](sources/ons-l55o.md), [Bank Rate](sources/boe-baserate.md), [UK HPI](sources/uk-hpi.md) and
+[ASHE Table 20](sources/ons-ashe-table20.md)) are time-series observations, so one canonical entity serves them.
+Other setups with a different entity shape would need their own canonical schema. Mappings are
 validated against it on save.
 
 ## 8. Performance path

@@ -1,0 +1,16 @@
+id: uk-hpi-average-prices
+kind: csv
+location: "https://publicdata.landregistry.gov.uk/market-trend-data/house-price-index-data/Average-prices-{ym}.csv"
+resolve:
+  ym: { kind: month, layout: "2006-01", start: "-1m", back: 6 }
+csv: { header: true, encoding: utf-8 }
+table:
+  - unpivot:
+      id: [Date, Region_Name, Area_Code]
+      columns: { Average_Price: average_price, Average_Price_SA: average_price_sa }   # changes are derivable: not imported
+      name: measure_col
+      value: value                           # empty values (e.g. SA before 2004) are dropped
+natural_key: [Area_Code, Date, measure_col]
+schedule: { every: monthly, day_of_month: 20, at: "10:00", timezone: Europe/London, on_missed: run_once }
+change_detection: [etag, last_modified, content_hash]
+max_error_ratio: 0.0

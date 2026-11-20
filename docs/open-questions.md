@@ -19,6 +19,11 @@
 9c. **File retention**: how long to keep fetched files (`source_files`) per source, and where (DB large object vs
     object storage)?
 9d. **Licence/attribution**: check each publisher's reuse terms and add attribution metadata per source.
+9f. **Revised vs provisional (ASHE)**: should readers get one "best" value per reference year (prefer revised) or
+    both? Same question for revised HPI months: keep history of changes?
+9g. **NS-SeC**: occupation (SOC) is the agreed proxy. A true NS-SeC earnings source (bespoke ONS table or another survey)
+    would be a separate later source.
+9h. **More measures**: ASHE weekly/hourly/hours tables, the other HPI attribute files, percentiles, coefficients of variation.
 10. **Granularity**: keep annual, quarterly and monthly rows together (as published) or split into separate
     canonical series?
 

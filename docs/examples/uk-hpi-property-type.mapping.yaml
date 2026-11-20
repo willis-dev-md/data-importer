@@ -1,0 +1,17 @@
+source: uk-hpi-property-type
+version: 1
+fields:
+  series_id:    { template: "ukhpi:average_price:{property_type}:{Area_Code}" }
+  series_title: { template: "UK HPI average price, {property_type}: {Region_Name}" }
+  measure:      { const: average_price }
+  statistic:    { const: mean }
+  period_type:  { from: Date, type: period, format: "2006-01-02", precision: month, output: period_type }
+  period_start: { from: Date, type: period, format: "2006-01-02", precision: month, output: period_start }
+  period_end:   { from: Date, type: period, format: "2006-01-02", precision: month, output: period_end }
+  value:        { from: value, type: decimal, required: true }
+  unit:         { const: GBP }
+dimensions:
+  area_code:     { from: Area_Code }
+  area_name:     { from: Region_Name }
+  property_type: { from: property_type }
+extra: keep

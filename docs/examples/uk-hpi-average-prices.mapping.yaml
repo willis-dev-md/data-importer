@@ -1,0 +1,18 @@
+source: uk-hpi-average-prices
+version: 1
+fields:
+  series_id:    { template: "ukhpi:{measure_col}:{Area_Code}" }
+  series_title: { template: "UK HPI {measure_col}: {Region_Name}" }
+  measure:      { from: measure_col, required: true }
+  statistic:    { const: mean }
+  # Date is always the 1st of the month: force month precision
+  period_type:  { from: Date, type: period, format: "2006-01-02", precision: month, output: period_type }
+  period_start: { from: Date, type: period, format: "2006-01-02", precision: month, output: period_start }
+  period_end:   { from: Date, type: period, format: "2006-01-02", precision: month, output: period_end }
+  value:        { from: value, type: decimal, required: true }
+  unit:         { const: GBP }
+dimensions:
+  area_code:     { from: Area_Code }
+  area_name:     { from: Region_Name }
+  property_type: { const: all }
+extra: keep
