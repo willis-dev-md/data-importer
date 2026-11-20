@@ -1,0 +1,12 @@
+id: ons-l55o
+kind: csv
+location: "https://www.ons.gov.uk/generator?format=csv&uri=/economy/inflationandpriceindices/timeseries/l55o/mm23"
+csv:
+  delimiter: ","
+  header: false
+  columns: [period, value]
+  encoding: utf-8
+  preamble: { lines: 8, as: metadata }
+natural_key: ["@meta.CDID", period]
+missing_policy: keep        # history is cumulative; rows are not removed by the publisher
+max_error_ratio: 0.01

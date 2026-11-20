@@ -92,8 +92,10 @@ variable part (the mapping) must be cheap to change and must not gate loading.
       imported_at   Timestamp
     }
 
-The canonical field set is declared in `canonical-schema.yaml` (name, type, required). The sample schema ships
-with the repo; the domain is intentionally undecided (see [open-questions](open-questions.md)). Mappings are
+The canonical field set is declared in `canonical-schema.yaml` (name, type, required). The first source (ONS time
+series, see [sources/ons-l55o.md](sources/ons-l55o.md)) makes the initial canonical entity a **time-series
+observation**: `series_id`, `series_title`, `period_type`, `period_start`, `period_end`, `value`, `unit`
+(see [open-questions](open-questions.md) for whether other setups share it). Mappings are
 validated against it on save.
 
 ## 8. Performance path

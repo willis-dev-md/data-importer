@@ -1,0 +1,11 @@
+source: ons-l55o
+version: 1
+fields:
+  series_id:    { from: "@meta.CDID", required: true }
+  series_title: { from: "@meta.Title" }
+  unit:         { from: "@meta.Unit" }
+  period_type:  { from: period, type: period, output: period_type }
+  period_start: { from: period, type: period, output: period_start }
+  period_end:   { from: period, type: period, output: period_end }
+  value:        { from: value, type: decimal, required: true }
+extra: keep

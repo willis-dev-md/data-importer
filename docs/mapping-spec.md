@@ -20,6 +20,24 @@ missing_policy: keep      # keep | tombstone
 max_error_ratio: 0.05
 ```
 
+### CSV with a metadata preamble and no header row
+
+Some publishers (e.g. the ONS, see [sources/ons-l55o.md](sources/ons-l55o.md)) put `key,value` metadata lines
+above the data and have no header row.
+
+```yaml
+csv:
+  header: false
+  columns: [period, value]       # names for headerless data
+  preamble:
+    lines: 8                     # or `until: <regex matching first data row>`
+    as: metadata                 # parse as key,value pairs -> available as @meta.<Key>
+natural_key: ["@meta.CDID", period]   # may mix metadata and row fields
+```
+
+Preamble metadata is stored on `import_runs.source_meta` and copied into each raw payload under `_meta`, so
+mappings can reference it (`from: "@meta.Unit"`) and the data stays self-describing.
+
 ## Source: HTTP JSON API
 
 ```yaml
@@ -67,7 +85,7 @@ extra: keep                        # keep | drop: unmapped source fields into Re
 | Option | Meaning |
 |---|---|
 | `from` | source field name(s) or JSONPath (`$.a.b`); list = multiple inputs |
-| `type` | `string` `int` `decimal` `bool` `date` `timestamp` (default `string`) |
+| `type` | `string` `int` `decimal` `bool` `date` `timestamp` `period` (default `string`) |
 | `format` | parse layout for dates/timestamps |
 | `transform` | ordered list: `trim` `lower` `upper` `concat(sep)` `split(sep)` `regex(pat,repl)` `coalesce` |
 | `map` | value lookup table |
@@ -76,6 +94,12 @@ extra: keep                        # keep | drop: unmapped source fields into Re
 | `validate` | `email` `url` `regex(pat)` `range(min,max)` |
 
 Transforms are a closed, pure set (no scripting) so mappings stay safe and testable.
+
+### Period type
+`type: period` parses publisher period labels into a normalised value with three outputs:
+`period_type` (`year|quarter|month`), `period_start` (date) and `period_end` (date).
+Recognised layouts: `YYYY`, `YYYY Qn`, `YYYY MON` (English month abbreviations). Custom layouts can be added
+with `formats:`. Unparseable labels give `PARSE_FAILED`.
 
 ### Validation on save
 - every canonical field referenced exists in `canonical-schema.yaml` and types are compatible
