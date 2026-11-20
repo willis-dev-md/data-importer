@@ -10,6 +10,7 @@ created by the task that introduces the behaviour.
 | [blocked-network-host.md](blocked-network-host.md) | a download fails with `CONNECT tunnel failed, response 403` |
 | [github-push-refused.md](github-push-refused.md) | `git push` returns 403 after attaching a repo |
 | [onboarding-a-new-source.md](onboarding-a-new-source.md) | inspecting a new CSV/Excel/zip/API source before writing config |
+| [factory-usage-ledger.md](factory-usage-ledger.md) | record or read per-task token usage; ledger errors |
 
 Planned (created by the tasks in `factory/tasks/`): local-development, database-migrations, mapping-validation-errors,
 import-failures, add-a-source, run-the-grpc-server, demo-and-smoke-test, source-layout-changed, reparse-and-file-retention,
