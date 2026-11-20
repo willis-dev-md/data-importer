@@ -1,6 +1,6 @@
 # data-importer
 
-A configurable import pipeline that pulls data from **CSV files**, **Excel workbooks** and **HTTP/JSON APIs** or **MCP servers** whose structure
+A configurable import pipeline that pulls data from **CSV files**, **Excel workbooks** and  whose structure
 differs per setup, lands it in **Postgres** exactly as received, and serves it through a **gRPC API**
 that applies a per-source mapping to present a stable, typed shape.
 
@@ -27,7 +27,7 @@ at read time, so fixing a mapping never requires a re-import and no source data 
 | [docs/testing.md](docs/testing.md) | Test strategy and quality gates |
 | [docs/roadmap.md](docs/roadmap.md) | Milestones and task breakdown |
 | [docs/open-questions.md](docs/open-questions.md) | Decisions still to make |
-| [docs/adr/](docs/adr) | Architecture decision records |
+(docs/adr) | Architecture decision records |
 | [docs/examples/](docs/examples) | Sample source configs |
 
 ## Planned stack

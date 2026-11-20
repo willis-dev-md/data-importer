@@ -19,7 +19,8 @@
 9c. **File retention**: how long to keep fetched files (`source_files`) per source, and where (DB large object vs
     object storage)?
 9d. **Licence/attribution**: check each publisher's reuse terms and add attribution metadata per source.
-9e. **MCP sources**: which servers, which transport (remote HTTP vs local stdio), how are they authenticated, and
-    do their tools return structured output or text? Where will stdio servers run?
 10. **Granularity**: keep annual, quarterly and monthly rows together (as published) or split into separate
     canonical series?
+
+## Parked
+- MCP server sources: see [parked/mcp-source.md](parked/mcp-source.md).
