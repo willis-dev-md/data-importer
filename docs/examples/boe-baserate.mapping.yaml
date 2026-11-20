@@ -11,9 +11,11 @@ fields:
       "Official Bank Rate": BOE_OFFICIAL_BANK_RATE
     required: true
   series_title: { from: "@ctx.series_name" }
-  period_type:  { const: day }
-  period_start: { from: [year, day, month], type: date, format: "2 Jan 2006" }   # month names are case-insensitive
-  period_end:   { from: [year, day, month], type: date, format: "2 Jan 2006" }
+  # 17 early events have no day (e.g. Oct 1694): the second layout gives them month precision.
+  # Inputs are joined (empty ones skipped) in the order listed, so list them in layout order.
+  period_type:  { from: [day, month, year], type: period, format: ["2 Jan 2006", "Jan 2006"], output: period_type }
+  period_start: { from: [day, month, year], type: period, format: ["2 Jan 2006", "Jan 2006"], output: period_start }
+  period_end:   { from: [day, month, year], type: period, format: ["2 Jan 2006", "Jan 2006"], output: period_end }
   value:        { from: rate, type: decimal, required: true }
   unit:         { const: "%" }
 extra: keep

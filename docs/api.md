@@ -57,3 +57,15 @@ Conventions
 - Errors use canonical gRPC codes with `google.rpc.ErrorInfo` details.
 - Versioning by package (`v1`); additive changes only within a version. Linted with `buf`.
 - Auth: bearer token metadata, scoped to source ids and roles (`reader`, `admin`, `raw_reader`).
+
+## Filtering semantics (mapping on read)
+Filters and sorts apply to **canonical** fields, which only exist after mapping. v1 handles this honestly rather than
+approximating:
+- The server walks `raw_records` in key order (keyset), maps each row, applies the filters to the mapped values and
+  collects matches until `page_size` is reached.
+- A per-call **scan limit** (default 50,000 rows, `SCAN_LIMIT`) bounds the work. If it is hit before the page is
+  full, the response returns the matches so far with a non-empty `next_page_token`, so clients simply continue.
+- Cheap pushdown applies where it is exact: `source_id` and `deleted`/`include_deleted`.
+- This is correct for any mapping and any filter. Speed for hot sources comes later from materialised typed views
+  (roadmap M9); the API does not change when that happens.
+- `sort` is limited in v1 to natural-key order (the stable keyset order); other sorts return `INVALID_ARGUMENT`.

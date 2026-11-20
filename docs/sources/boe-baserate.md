@@ -24,6 +24,8 @@ about (all of `HISTORICAL SINCE 1694`, the first and last rows of `Raw Data`); t
   column A mid-sheet and change which series the following rows belong to. The first section (`Bank Rate`) has its
   heading above the data start.
 - Text rows such as `1933-1938 no changes`, and blank spacer rows, must be dropped.
+- **17 early events have no day** (month precision only, e.g. `Oct 1694`; blank in column B). They must map to
+  `period_type: month`, not fail. The mapping supports this with a list of layouts (`2 Jan 2006`, then `Jan 2006`).
 - Values are floats or ints (e.g. `13.8438`, `4`).
 - One file yields **several series**, unlike ONS where one file is one series.
 
@@ -32,7 +34,7 @@ about (all of `HISTORICAL SINCE 1694`, the first and last rows of `Raw Data`); t
 2. A **row pipeline** for structural clean-up that needs row order and so must run at import:
    section tracking, fill-down, dropping non-data rows ([ADR-0004](../adr/0004-structural-parsing-at-import.md)).
 3. **Change detection** on the file (ETag/Last-Modified/hash) so a 1 MB download is parsed only when it changed.
-4. The same canonical time-series observation fits: `period_type = day`, `period_start = period_end =` the
+4. The same canonical time-series observation fits: `period_type = day` (or `month` for the 17 day-less events), `period_start = period_end =` the
    effective date, `series_id` from the section. Because values are change events, "rate on date D" is the latest
    event on or before D (see `GetValueAsOf` in [api](../api.md)).
 5. Cadence: the file changes only on rate decisions, so a cheap `daily` schedule with change detection is

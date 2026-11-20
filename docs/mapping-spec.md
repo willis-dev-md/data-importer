@@ -146,7 +146,7 @@ extra: keep                        # keep | drop: unmapped source fields into Re
 | `type` | `string` `int` `decimal` `bool` `date` `timestamp` `period` (default `string`) |
 | `const` | fixed value instead of `from` (e.g. `unit: "%"`) |
 | `@ctx.<name>` | in `from`: a context variable set by a `section` step |
-| `format` | parse layout for dates/timestamps; with several `from` inputs they are joined with spaces (`[year, day, month]` + `"2 Jan 2006"`), month names case-insensitive |
+| `format` | parse layout (or a list of layouts tried in order) for dates/timestamps/periods. With several `from` inputs the non-empty ones are joined with spaces in the order listed, so list them in layout order (`[day, month, year]` for `"2 Jan 2006"`). Month names are case-insensitive |
 | `transform` | ordered list: `trim` `lower` `upper` `concat(sep)` `split(sep)` `regex(pat,repl)` `coalesce` |
 | `map` | value lookup table |
 | `default` | used when input is missing/empty |
@@ -158,8 +158,10 @@ Transforms are a closed, pure set (no scripting) so mappings stay safe and testa
 ### Period type
 `type: period` parses publisher period labels into a normalised value with three outputs:
 `period_type` (`year|quarter|month|day`), `period_start` (date) and `period_end` (date).
-Recognised layouts: `YYYY`, `YYYY Qn`, `YYYY MON` (English month abbreviations). Custom layouts can be added
-with `formats:`. Unparseable labels give `PARSE_FAILED`.
+Built-in layouts: `YYYY`, `YYYY Qn`, `YYYY MON` (English month abbreviations). With an explicit `format`, the
+resulting precision follows the layout that matched: a layout with a day gives `period_type: day`
+(start = end = that date), a layout with only month and year gives `month`. This is how rate events with and
+without a day (BoE) are handled. Unparseable labels give `PARSE_FAILED`.
 
 ### Validation on save
 - every canonical field referenced exists in `canonical-schema.yaml` and types are compatible
