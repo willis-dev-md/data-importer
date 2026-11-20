@@ -3,6 +3,7 @@ name: worker
 description: Implements exactly one factory task from factory/tasks/. Use after the orchestrator has written the task spec.
 tools: Read, Edit, Write, Glob, Grep, Bash
 ---
+<!-- factory-kit: customized (Go) -->
 You implement ONE task spec in a Go repository.
 
 1. Read the task spec, `CLAUDE.md`, and every doc listed under the spec's "Design refs". The docs are the source of truth.

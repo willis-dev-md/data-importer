@@ -23,6 +23,12 @@ New features. Only fix bugs found, in the owning package, noting them in the log
 - [ ] `docs/roadmap.md` marks M0 to M5 as done and notes remaining milestones; `scripts/checks.d/20-docs-links.sh` still passes.
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+README.md (Quick start, exercised by the e2e test); docs/roadmap.md (M0-M5 done); CHANGELOG.md
+
+## Runbook impact
+docs/runbooks/demo-and-smoke-test.md (run scripts/demo.sh, expected output, what a failure means)
+
 ## Status
 pending
 ## Log

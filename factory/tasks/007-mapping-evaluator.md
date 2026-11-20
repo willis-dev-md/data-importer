@@ -30,6 +30,12 @@ DB access, gRPC, caching, filtering across records.
 - [ ] A fuzz test shows `Eval` never panics for arbitrary JSON-like payloads; tests are `-race` clean.
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/mapping-spec.md (transforms, period types, FieldError codes, known limitation: decimal as float64); CHANGELOG.md
+
+## Runbook impact
+docs/runbooks/mapping-validation-errors.md (add runtime FieldError codes MISSING_REQUIRED, TYPE_MISMATCH, PARSE_FAILED, VALIDATION_FAILED with fixes)
+
 ## Status
 pending
 ## Log

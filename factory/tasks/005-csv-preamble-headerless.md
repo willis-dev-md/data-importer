@@ -24,6 +24,12 @@ Mapping, period parsing, DB, groups/templating.
 - [ ] Preamble shorter than declared (`lines` larger than the file) is an error, not a panic or a silent empty import.
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/mapping-spec.md (preamble / headerless / @meta key); docs/sources/ons-l55o.md (verified counts); CHANGELOG.md
+
+## Runbook impact
+none: library-level; the ONS source failure modes are documented in the task 012 smoke-test runbook
+
 ## Status
 pending
 ## Log

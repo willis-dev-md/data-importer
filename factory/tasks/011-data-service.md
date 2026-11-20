@@ -24,6 +24,12 @@ Auth, `GetRawRecord`, `ExportRecords`, `GetValueAsOf`, caching beyond a simple i
 - [ ] Tests (real Postgres, ONS fixture imported through `importer.Run`, mapping `docs/examples/ons-l55o.mapping.yaml`): total records for `source_id=ons-l55o` via paging with `page_size=100` equals **642** with no duplicates; filter `period_type = month` returns **454**; `period_type = month AND value >= 3.5` returns **108**; `period_type = year` returns **37**; a tiny `SCAN_LIMIT` still returns all matches across pages; invalid filters give the right codes; pagination is stable when a new import adds rows mid-walk (no duplicate, no loss of pre-existing rows).
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/api.md (filtering semantics, page size rule chosen, SCAN_LIMIT); CHANGELOG.md
+
+## Runbook impact
+update docs/runbooks/run-the-grpc-server.md (short pages and continuation tokens, SCAN_LIMIT tuning, mapping errors in responses)
+
 ## Status
 pending
 ## Log

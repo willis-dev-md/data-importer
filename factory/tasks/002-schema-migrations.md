@@ -22,6 +22,12 @@ Groups, schedules, `source_files`, `mapping_templates` and the `schedule/enabled
 - [ ] Integration test: up creates all tables and the CHECK/PK/FK constraints (assert via `information_schema`/`pg_indexes`); inserting a `raw_records` row for an unknown source fails; `status='bogus'` is rejected; down removes everything; up/down/up leaves a working schema.
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/data-model.md (as implemented); docs/operations.md (`importer migrate`); CHANGELOG.md
+
+## Runbook impact
+docs/runbooks/database-migrations.md (apply, check version, roll back one step, dirty-migration recovery)
+
 ## Status
 pending
 ## Log

@@ -26,6 +26,12 @@ Tombstoning (`missing_policy: tombstone`), rollback command, scheduler, file ret
 - [ ] Integration test with the ONS fixture and `docs/examples/ons-l55o.source.yaml` (location overridden): run 1 gives `inserted=642, updated=0, unchanged=0, failed=0`, `source_meta.CDID == "L55O"`; run 2 gives `unchanged=642`; after editing one value in a temp copy of the CSV, run 3 gives `updated=1, unchanged=641`.
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/design.md (Import flow and failure handling as implemented); docs/data-model.md (counts, shape, statuses); CHANGELOG.md
+
+## Runbook impact
+docs/runbooks/import-failures.md (failed, aborted by max_error_ratio, already running, cancelled; rejects table queries)
+
 ## Status
 pending
 ## Log

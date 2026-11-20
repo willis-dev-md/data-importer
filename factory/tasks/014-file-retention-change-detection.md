@@ -23,6 +23,12 @@ Object-storage backends (store in Postgres large objects or a local directory be
 - [ ] Files above a configured size are still hashed and processed in a streaming way (no whole-file buffering for CSV) and the size limit from task 004 still applies.
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/design.md (Import flow step 2a); docs/data-model.md (`source_files`); docs/operations.md (`importer reparse`); CHANGELOG.md
+
+## Runbook impact
+docs/runbooks/reparse-and-file-retention.md (reparse after a pipeline change, where files are stored, clean-up)
+
 ## Status
 pending
 ## Log

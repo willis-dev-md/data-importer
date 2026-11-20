@@ -25,6 +25,8 @@ at read time, so fixing a mapping never requires a re-import and no source data 
 | [docs/api.md](docs/api.md) | gRPC services and proto sketch |
 | [docs/operations.md](docs/operations.md) | Config, running, security, observability |
 | [docs/testing.md](docs/testing.md) | Test strategy and quality gates |
+| [docs/runbooks/](docs/runbooks) | Runbooks and troubleshooting guides (kept by the runbook-refiner role) |
+| [CHANGELOG.md](CHANGELOG.md) | Changes (kept by the documentor role) |
 | [docs/roadmap.md](docs/roadmap.md) | Milestones and task breakdown |
 | [docs/open-questions.md](docs/open-questions.md) | Decisions still to make |
 (docs/adr) | Architecture decision records |

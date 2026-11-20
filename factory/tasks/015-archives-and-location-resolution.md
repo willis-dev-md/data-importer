@@ -23,6 +23,12 @@ Other archive formats (tar, 7z), scraping landing pages for links (explicitly no
 - [ ] Group templating (`{year}{status}`) and `resolve` placeholders coexist: unresolved `{...}` placeholders left in a location after expansion fail validation.
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/mapping-spec.md (Archives, Location resolution as implemented); CHANGELOG.md
+
+## Runbook impact
+docs/runbooks/source-url-not-found.md (resolve failures, the URLs tried, blocked network hosts; link to blocked-network-host.md)
+
 ## Status
 pending
 ## Log

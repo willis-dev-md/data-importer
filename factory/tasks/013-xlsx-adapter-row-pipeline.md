@@ -25,6 +25,12 @@ Archives (015), change detection/retention (014), the mapping engine (done in 00
 - [ ] A second golden test reads `testdata/ashe/t20-7a-trimmed.xlsx` with the sheet/skip/split/strip pipeline from `docs/examples/ashe-t20-annual-pay.group.yaml` (no unpivot, no zip: location is the xlsx itself, archive ignored in this test): sheets `All` and `Male Full-Time` each give **217** rows; first row has empty `age_band`; the row for `18-21 ALL OCCUPATIONS` has `age_band=18-21`, `soc_name=ALL OCCUPATIONS`, empty `soc_code`; a two-digit SOC row has `soc_code` without the apostrophe.
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/mapping-spec.md (XLSX and row pipeline as implemented); docs/sources/boe-baserate.md (verified counts); CHANGELOG.md
+
+## Runbook impact
+docs/runbooks/source-layout-changed.md (a publisher changed a workbook/CSV layout: how to spot it from row errors and run shape, and how to fix the config)
+
 ## Status
 pending
 ## Log

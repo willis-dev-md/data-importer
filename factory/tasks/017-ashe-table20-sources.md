@@ -24,6 +24,12 @@ Other ASHE tables and measures, the `b` coefficient-of-variation workbooks, back
 - [ ] Filtering `statistic = median AND dimensions.age_band = 22-29` returns one record per SOC group (+ the all-occupations row) per population sheet imported; `dimensions.population` distinguishes `All` from `Male Full-Time`.
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/sources/ons-ashe-table20.md (verified counts and behaviour); CHANGELOG.md
+
+## Runbook impact
+docs/runbooks/ashe-annual-release.md (October release: new provisional and revised editions, adding a member, checking the load)
+
 ## Status
 pending
 ## Log

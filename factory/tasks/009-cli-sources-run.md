@@ -23,6 +23,12 @@ Groups, schedules, the gRPC server, `infer`, `reparse`.
 - [ ] End-to-end CLI test (built binary via `exec`, real Postgres): migrate, apply a temp dir containing the ONS source+mapping with `location` pointing at the fixture, run twice, assert summaries and DB counts (642 then 642 unchanged).
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/operations.md (CLI, SOURCES_DIR, exit codes); README.md (usage); CHANGELOG.md
+
+## Runbook impact
+docs/runbooks/add-a-source.md (author source + mapping, validate, apply, dry-run, run); update docs/runbooks/import-failures.md with exit codes
+
 ## Status
 pending
 ## Log

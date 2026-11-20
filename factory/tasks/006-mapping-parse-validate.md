@@ -23,6 +23,12 @@ Evaluating mappings against data (task 007); storing mappings in the DB.
 - [ ] `importer mapping validate <file>` prints issues as `path: code: message`, exits 0 when no errors (warnings allowed), 1 on errors, 2 on unreadable file.
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/mapping-spec.md (validation rules as implemented); docs/design.md section 7 (canonical schema); docs/operations.md (`importer mapping validate`); CHANGELOG.md
+
+## Runbook impact
+docs/runbooks/mapping-validation-errors.md (each issue code: meaning and fix)
+
 ## Status
 pending
 ## Log

@@ -23,6 +23,12 @@ The full-file source, other attribute files, scheduling behaviour (007's schedul
 - [ ] Resolution is exercised separately: a test serves `Average-prices-2026-09.csv` from an `httptest` server with `resolve` (fake clock set to 2026-11-20) and the run uses `2026-09` (candidates tried: `2026-10` (404), `2026-09` (200)).
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/sources/uk-hpi.md (verified counts and behaviour); CHANGELOG.md
+
+## Runbook impact
+docs/runbooks/uk-hpi-monthly-update.md (what happens each month, how to check it, what to do if a month is missing)
+
 ## Status
 pending
 ## Log

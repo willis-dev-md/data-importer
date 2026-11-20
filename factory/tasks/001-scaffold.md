@@ -26,6 +26,12 @@ Any real functionality (parsing, DB schema, gRPC). No proto files yet.
 - [ ] `.github/workflows/ci.yml` runs on push and PR: setup-go 1.24, a Postgres 16 service, `gofmt` check, `go vet`, `go tool staticcheck ./...`, `CI_REQUIRE_DB=1 go test -race ./...`.
 - [ ] `scripts/validate.sh` passes (run from a clean checkout; it starts and stops its own Postgres and leaves no postgres process behind: verify with `pgrep -a postgres`).
 
+## Docs impact
+README.md (Develop section: make targets, test database); CHANGELOG.md
+
+## Runbook impact
+docs/runbooks/local-development.md (build, test, start/stop the test database; Postgres-as-root and port-in-use fixes)
+
 ## Status
 pending
 ## Log

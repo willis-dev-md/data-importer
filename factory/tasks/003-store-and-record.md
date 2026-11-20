@@ -23,6 +23,12 @@ Adapters, mapping, gRPC, tombstoning of missing rows, scheduling.
 - [ ] Integration tests (real Postgres): insert/update/unchanged counts across two runs; 2,000-record batch; keyset pagination returns every row exactly once in order; two concurrent `TryAdvisoryLock` for one source: exactly one gets `ok`; lock released after `unlock()` and after connection loss.
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/data-model.md (natural-key encoding, content hash, upsert counting rules); docs/design.md Import flow if wording changed
+
+## Runbook impact
+none: internal library with no operator-facing behaviour yet; lock and run behaviour become operational in tasks 008 and 009, which own those runbooks
+
 ## Status
 pending
 ## Log

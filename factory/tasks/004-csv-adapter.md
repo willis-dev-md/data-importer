@@ -25,6 +25,12 @@ Preamble/headerless handling (task 005), XLSX, HTTP JSON, mapping, DB writes, re
 - [ ] A fuzz test (`go test -fuzz` seed corpus runs in normal `go test`) shows the reader never panics on arbitrary bytes.
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/mapping-spec.md (CSV options as implemented, strict config validation); CHANGELOG.md
+
+## Runbook impact
+none: adapter library; operators meet its failures through `importer run`, whose runbook is written in task 009
+
 ## Status
 pending
 ## Log

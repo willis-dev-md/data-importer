@@ -23,6 +23,12 @@ Implementing `GetRecord`/`ListRecords` (task 011); `SourceService`, `ImportServi
 - [ ] Tests (in-process via `bufconn` and one real TCP listener): health responds, reflection lists `dataimporter.v1.DataService`, unimplemented methods return the right code, graceful shutdown completes in-flight calls, TLS config validation errors for half-configured TLS.
 - [ ] `scripts/validate.sh` passes.
 
+## Docs impact
+docs/api.md (as generated); docs/operations.md (GRPC_ADDR, TLS vars, shutdown); CHANGELOG.md
+
+## Runbook impact
+docs/runbooks/run-the-grpc-server.md (start, health, reflection, TLS, graceful shutdown)
+
 ## Status
 pending
 ## Log
