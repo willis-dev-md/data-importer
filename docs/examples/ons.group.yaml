@@ -1,0 +1,16 @@
+group: ons-timeseries
+template:
+  kind: csv
+  location: "https://www.ons.gov.uk/generator?format=csv&uri=/{path}/timeseries/{cdid}/{dataset}"
+  csv:
+    header: false
+    columns: [period, value]
+    preamble: { lines: 8, as: metadata }
+  natural_key: ["@meta.CDID", period]
+  schedule: { every: monthly, day_of_month: 18, at: "09:30", timezone: Europe/London, on_missed: run_once, jitter: 10m }
+  max_error_ratio: 0.01
+  mapping: ons-timeseries@1
+rate_limit: { host: www.ons.gov.uk, requests_per_sec: 1 }
+members:
+  - { id: ons-l55o, cdid: l55o, dataset: mm23, path: economy/inflationandpriceindices }
+  - { id: ons-d7g7, cdid: d7g7, dataset: mm23, path: economy/inflationandpriceindices }

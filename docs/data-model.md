@@ -1,8 +1,22 @@
 # Data model (Postgres)
 
 ```sql
+CREATE TABLE source_groups (
+  id          text PRIMARY KEY,
+  spec        jsonb NOT NULL,              -- template, rate_limit, members
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE mapping_templates (            -- shared mappings referenced as name@version
+  name        text NOT NULL,
+  version     int  NOT NULL,
+  spec        jsonb NOT NULL,
+  PRIMARY KEY (name, version)
+);
+
 CREATE TABLE sources (
   id            text PRIMARY KEY,            -- slug, e.g. "acme-csv"
+  group_id      text REFERENCES source_groups(id),   -- null for standalone sources
   kind          text NOT NULL CHECK (kind IN ('csv','http_json')),
   config        jsonb NOT NULL,              -- parsed source config (no secrets)
   active_mapping_version int,

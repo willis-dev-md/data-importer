@@ -4,6 +4,10 @@ Two YAML documents per setup: a **source** (how to fetch/parse) and a **mapping*
 Both are validated against JSON Schema before being stored. Mappings are versioned; saving creates a new
 version and `active_mapping_version` is switched explicitly.
 
+## Many datasets
+Shared structure across many datasets is handled with [source groups](source-groups.md): one template plus a list
+of members, expanded to one source each. A mapping can be shared as `name@version` so it is written once.
+
 ## Schedule
 
 Every source (any kind) defines when it is imported:

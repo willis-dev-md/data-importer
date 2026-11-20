@@ -10,6 +10,7 @@
 | M5 | gRPC read API | `DataService` with filters, keyset paging, mapping on read |
 | M6 | HTTP JSON adapter | Auth, pagination types, retries, rate limit |
 | M7 | Scheduler + services | Schedule parsing/validation, `next_run_at`, SKIP LOCKED claiming, catch-up policy; `SourceService`, `ImportService`, mapping versioning |
+| M7b | Source groups | Templates, member expansion, shared mappings, plan/apply, rate limit, jitter, concurrency pool, group health |
 | M8 | Hardening | Auth interceptor, TLS, metrics, rollback, tombstones |
 | M9 | Performance | Indexes, optional materialized views, load test |
 

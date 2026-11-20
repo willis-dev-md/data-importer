@@ -1,3 +1,4 @@
+# Standalone form. For many datasets use a group: see docs/examples/ons.group.yaml
 id: ons-l55o
 kind: csv
 location: "https://www.ons.gov.uk/generator?format=csv&uri=/economy/inflationandpriceindices/timeseries/l55o/mm23"

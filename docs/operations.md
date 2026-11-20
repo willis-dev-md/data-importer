@@ -7,12 +7,14 @@
 | `GRPC_ADDR` | listen address, default `:8443` |
 | `TLS_CERT_FILE` / `TLS_KEY_FILE` | server TLS |
 | `AUTH_TOKENS_FILE` | token -> roles/sources map |
+| `IMPORT_CONCURRENCY` | max simultaneous import runs (default 4) |
 | `SOURCES_DIR` | directory of source + mapping YAML |
 
 ## CLI
     importer migrate up
     importer serve
     importer run --source <id> [--dry-run]
+    importer group plan|apply <group.yaml>
     importer rollback --run <id>
     importer infer <file-or-url> > draft-mapping.yaml
     importer mapping validate <file>

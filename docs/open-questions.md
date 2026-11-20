@@ -10,7 +10,9 @@
 6. **Retention and privacy**: does any source contain personal data? Per-source retention/deletion rules?
 7. **Scale**: expected records per source and per run, and read QPS?
 8. **Deployment target**: where does it run (container platform, managed Postgres)?
-9. **ONS scope**: just series `l55o`, or many series/datasets (a list of CDIDs)? Release-aware scheduling
-   (poll around the "Next release" date) and handling of revisions to past values.
+9. **ONS scope**: answered, many datasets. Open: how many (tens vs thousands), where the member list comes from
+   (hand-maintained file vs generated from a catalogue), and handling of revisions to past values.
+9a. **Cross-publisher groups**: are all datasets ONS-style (preamble + `period,value`), or are there other
+   structures needing their own templates?
 10. **Granularity**: keep annual, quarterly and monthly rows together (as published) or split into separate
     canonical series?

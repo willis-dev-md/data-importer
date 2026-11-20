@@ -8,7 +8,8 @@ setup, store the data in a database, and expose it through a gRPC API.
 
 ## 2. Goals
 
-- Add a new setup by writing **configuration**, not code.
+- Add a new setup by writing **configuration**, not code, and add **many datasets** (hundreds) through a shared
+  definition ([source groups](source-groups.md)).
 - **Never lose source data**; keep what the source actually sent.
 - **Cadence is part of a source's setup** (daily, weekly, monthly or cron), run by a built-in scheduler.
 - Idempotent, observable imports (re-running a file does not duplicate data).
@@ -53,16 +54,21 @@ setup, store the data in a database, and expose it through a gRPC API.
 5. **gRPC server** (`internal/server`): `DataService` (read), `SourceService` (sources/mappings),
    `ImportService` (control). Applies the active mapping on read.
 
+### Source groups
+A group (template + member list) expands to one ordinary source per dataset, so scheduling, runs, errors and
+health are tracked per dataset while configuration is written once. See [source-groups](source-groups.md).
+
 ### Scheduler
 Each source declares its own `schedule` (see [mapping-spec](mapping-spec.md#schedule)). The scheduler runs inside
 `importer serve` and:
 1. Computes `sources.next_run_at` from the schedule and timezone; polls for due sources (every 30s).
-2. Claims a due source with `SELECT ... FOR UPDATE SKIP LOCKED` and a per-source advisory lock, so several
+2. Applies per-member jitter and a global concurrency limit (`IMPORT_CONCURRENCY`) and a shared per-host rate limit.
+3. Claims a due source with `SELECT ... FOR UPDATE SKIP LOCKED` and a per-source advisory lock, so several
    server replicas never run the same source twice and no leader election is needed.
-3. Starts a normal import run (`trigger = 'schedule'`), then computes the next `next_run_at` from the **scheduled**
+4. Starts a normal import run (`trigger = 'schedule'`), then computes the next `next_run_at` from the **scheduled**
    time, not the finish time, so cadence does not drift.
-4. Applies `on_missed` after downtime: `run_once` (default: one catch-up run) or `skip`.
-5. Overlap policy is always skip: a source already running is not started again.
+5. Applies `on_missed` after downtime: `run_once` (default: one catch-up run) or `skip`.
+6. Overlap policy is always skip: a source already running is not started again.
 Manual runs (`importer run`, `StartImport`) use the same path with `trigger = 'manual'`. Changing a schedule
 recomputes `next_run_at` immediately. A source can be paused with `enabled: false`.
 

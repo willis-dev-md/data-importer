@@ -13,6 +13,8 @@ service DataService {
 service SourceService {
   rpc ListSources(ListSourcesRequest) returns (ListSourcesResponse); // includes inferred shape
   rpc PutSource(PutSourceRequest) returns (Source);
+  rpc PutSourceGroup(PutSourceGroupRequest) returns (SourceGroup);     // plan/apply, idempotent
+  rpc ListGroupHealth(ListGroupHealthRequest) returns (GroupHealth);   // failing/stale/never-run members
   rpc PutMapping(PutMappingRequest) returns (MappingVersion);        // validates, dry-runs
   rpc ActivateMapping(ActivateMappingRequest) returns (Source);
   rpc InferMapping(InferMappingRequest) returns (MappingDraft);
@@ -39,6 +41,7 @@ message Record {
 
 message ListRecordsRequest {
   string source_id = 1;
+  string group_id = 7;              // alternative to source_id: query across a group's members
   repeated Filter filters = 2;      // field, op (EQ, NEQ, GT, LT, CONTAINS, IN), value
   repeated Sort sort = 3;
   int32 page_size = 4;              // default 50, max 1000
