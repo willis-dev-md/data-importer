@@ -16,6 +16,7 @@
     importer run --source <id> [--dry-run]
     importer group plan|apply <group.yaml>
     importer rollback --run <id>
+    importer reparse --source <id> [--run <id>]   # re-run the structural pipeline on the stored file
     importer infer <file-or-url> > draft-mapping.yaml
     importer mapping validate <file>
     importer mapping materialize <source>

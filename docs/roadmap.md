@@ -5,6 +5,7 @@
 | M0 | Scaffold | Go module, CI, lint, migrations runner, docker-compose Postgres |
 | M1 | Store + model | Schema from [data-model](data-model.md), store package, integration tests |
 | M2 | CSV adapter | Configurable parsing, headerless files, metadata preamble, natural key, error capture |
+| M2b | XLSX adapter + row pipeline | Sheets/hidden sheets, column letters, section/fill_down/unpivot/normalize, file hash + conditional fetch, `source_files`, reparse. Acceptance fixture: BoE base rate |
 | M3 | Importer core | Runs, chunked idempotent upsert, counts, shape tracking, advisory lock |
 | M4 | Mapping engine | Parser, validator, transforms, `period` type, `@meta` refs, error model, dry-run |
 | M5 | gRPC read API | `DataService` with filters, keyset paging, mapping on read |
@@ -17,4 +18,5 @@
 Each milestone is split into small tasks with explicit acceptance criteria. M1 to M5 give a working
 CSV -> Postgres -> gRPC vertical slice, which is the first demo.
 
-First real source: ONS `l55o` (CPIH annual rate). It is the acceptance fixture for M2 to M5.
+Real sources: ONS `l55o` (CSV, preamble, one series per file) is the fixture for M2 to M5; the Bank of England
+base rate workbook (XLSX, messy layout, several series per file) is the fixture for M2b.

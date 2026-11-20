@@ -3,6 +3,7 @@
 | Layer | Approach |
 |---|---|
 | Source adapters | Golden-file tests: several CSVs (different delimiters/encodings/BOM/quoted newlines) and recorded API fixtures (pagination types, 429/5xx retry) |
+| XLSX / row pipeline | Golden tests on `testdata/boe/baserate-trimmed.xlsx`: 854 events, year fill-down, mixed text/number years and days, `Feb `/`may` months, section switches (rows after `Repo Rate` get that series), `1933-1938 no changes` dropped, hidden-sheet read, unchanged-file skip, reparse equals fresh import. Security: oversized/zip-bomb workbooks rejected |
 | Mapping engine | Table-driven unit tests per transform and error code; property test: mapping never panics on arbitrary payloads |
 | Store | Integration tests against real Postgres via `testcontainers-go` (upsert idempotency, tombstones, advisory lock) |
 | Source groups | Expansion and placeholder validation, override deep-merge, idempotent apply (add/update/disable), 200-member scheduling spread, per-host rate limiting, one failing member does not affect others |

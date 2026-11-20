@@ -44,7 +44,10 @@ setup, store the data in a database, and expose it through a gRPC API.
 ### Components
 
 1. **Source adapters** (`internal/source`): turn a source into a stream of `map[string]any` records plus a
-   natural key. Adapters do **no** business mapping. v1: `csv`, `http_json`.
+   natural key. Adapters do **no** business mapping. v1: `csv`, `xlsx`, `http_json`. Each adapter can apply a declarative
+   [row pipeline](mapping-spec.md#row-pipeline-table-for-csv-and-xlsx) (sections, fill-down, unpivot) for structure
+   that needs row order. Fetched files are kept by hash (`source_files`) so a pipeline change is a **reparse**,
+   not a re-download ([ADR-0004](adr/0004-structural-parsing-at-import.md)).
 2. **Importer** (`internal/importer`): orchestrates a run: opens an `import_runs` row, streams records from the
    adapter, upserts into `raw_records` in chunked transactions, records counts and the observed field shape,
    closes the run.
@@ -77,6 +80,8 @@ recomputes `next_run_at` immediately. A source can be paused with `enabled: fals
 ### Import
 1. `importer run --source <id>` (or `ImportService.StartImport`).
 2. Load source config; create `import_runs(status=running)`.
+2a. **Change detection:** conditional fetch (ETag / Last-Modified) and SHA-256 of the file; if identical to the
+    last successful run's file, close the run as `unchanged_file` without parsing.
 3. Adapter yields records; for each compute `natural_key` and `content_hash`.
 4. Upsert `raw_records` on `(source_id, natural_key)`; skip write when `content_hash` unchanged
    (counts as `unchanged`).
@@ -96,6 +101,8 @@ whole run unless `max_error_ratio` is exceeded.
 
 ## 6. Why ELT
 
+Nuance: only **structural** parsing happens at import; **semantic** mapping stays on read (ADR-0004).
+
 See [ADR-0001](adr/0001-elt-over-etl.md). In short: structure varies and is not fully known up front, so the
 variable part (the mapping) must be cheap to change and must not gate loading.
 
@@ -113,7 +120,7 @@ variable part (the mapping) must be cheap to change and must not gate loading.
 
 The canonical field set is declared in `canonical-schema.yaml` (name, type, required). The first source (ONS time
 series, see [sources/ons-l55o.md](sources/ons-l55o.md)) makes the initial canonical entity a **time-series
-observation**: `series_id`, `series_title`, `period_type`, `period_start`, `period_end`, `value`, `unit`
+observation**: `series_id`, `series_title`, `period_type` (year/quarter/month/day), `period_start`, `period_end`, `value`, `unit`
 (see [open-questions](open-questions.md) for whether other setups share it). Mappings are
 validated against it on save.
 

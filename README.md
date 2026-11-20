@@ -20,6 +20,7 @@ at read time, so fixing a mapping never requires a re-import and no source data 
 | [docs/design.md](docs/design.md) | Goals, architecture, components, flows |
 | [docs/data-model.md](docs/data-model.md) | Postgres schema |
 | [docs/source-groups.md](docs/source-groups.md) | Many datasets from one definition |
+| [docs/sources/](docs/sources) | Analysis of each real source (ONS CSV, Bank of England XLSX) |
 | [docs/mapping-spec.md](docs/mapping-spec.md) | Source + mapping YAML format, transforms, errors |
 | [docs/api.md](docs/api.md) | gRPC services and proto sketch |
 | [docs/operations.md](docs/operations.md) | Config, running, security, observability |

@@ -1,0 +1,19 @@
+source: boe-bank-rate
+version: 1
+fields:
+  series_id:
+    from: "@ctx.series_name"
+    map:
+      "Bank Rate": BOE_BANK_RATE
+      "Min Lending Rate": BOE_MIN_LENDING_RATE
+      "Min.Band 1 Dealing Rate": BOE_MIN_BAND1_DEALING_RATE
+      "Repo Rate": BOE_REPO_RATE
+      "Official Bank Rate": BOE_OFFICIAL_BANK_RATE
+    required: true
+  series_title: { from: "@ctx.series_name" }
+  period_type:  { const: day }
+  period_start: { from: [year, day, month], type: date, format: "2 Jan 2006" }   # month names are case-insensitive
+  period_end:   { from: [year, day, month], type: date, format: "2 Jan 2006" }
+  value:        { from: rate, type: decimal, required: true }
+  unit:         { const: "%" }
+extra: keep

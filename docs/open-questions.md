@@ -12,7 +12,12 @@
 8. **Deployment target**: where does it run (container platform, managed Postgres)?
 9. **ONS scope**: answered, many datasets. Open: how many (tens vs thousands), where the member list comes from
    (hand-maintained file vs generated from a catalogue), and handling of revisions to past values.
-9a. **Cross-publisher groups**: are all datasets ONS-style (preamble + `period,value`), or are there other
-   structures needing their own templates?
+9a. **Cross-publisher groups**: answered, no: BoE is an XLSX with a different structure, so each publisher/structure
+   gets its own template or standalone source, all mapped to the same canonical observation.
+9b. **Which sheet(s) of the BoE workbook**: I recommend only `HISTORICAL SINCE 1694` (events) and deriving daily
+    values on read; confirm you do not need the hidden daily `Raw Data` sheet (it contains future-dated rows).
+9c. **File retention**: how long to keep fetched files (`source_files`) per source, and where (DB large object vs
+    object storage)?
+9d. **Licence/attribution**: check each publisher's reuse terms and add attribution metadata per source.
 10. **Granularity**: keep annual, quarterly and monthly rows together (as published) or split into separate
     canonical series?

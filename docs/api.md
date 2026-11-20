@@ -8,6 +8,7 @@ service DataService {
   rpc ListRecords(ListRecordsRequest) returns (ListRecordsResponse);
   rpc ExportRecords(ExportRecordsRequest) returns (stream Record);   // server streaming
   rpc GetRawRecord(GetRawRecordRequest) returns (RawRecord);         // restricted scope
+  rpc GetValueAsOf(GetValueAsOfRequest) returns (Record);            // sparse/event series: latest event on or before a date
 }
 
 service SourceService {

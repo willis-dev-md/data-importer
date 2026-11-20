@@ -1,0 +1,22 @@
+id: boe-bank-rate
+kind: xlsx
+location: "https://www.bankofengland.co.uk/-/media/boe/files/monetary-policy/baserate.xlsx"
+change_detection: [etag, last_modified, content_hash]   # skip parse when the file is unchanged
+xlsx:
+  sheet: "HISTORICAL SINCE 1694"      # hidden sheets are allowed; names are matched exactly
+  start_row: 8
+  header: false
+  columns: { A: year, B: day, C: month, D: rate }
+  use_cached_values: true              # formulas are read as last saved values
+table:                                  # structural row pipeline, runs in order (see mapping-spec)
+  - section:
+      column: year
+      match: '^[A-Za-z]'               # text starting with a letter is a heading, not a year
+      set: series_name
+      default: "Bank Rate"
+  - drop_if_empty: [rate]              # drops spacer rows and '1933-1938 no changes'
+  - fill_down: { columns: [year], reset_on: section }
+  - normalize: { year: to_int, day: to_int, month: [trim, lower] }
+natural_key: [series_name, year, month, day]
+schedule: { every: daily, at: "16:00", timezone: Europe/London }
+max_error_ratio: 0.0                    # a structured, curated file: any bad row is suspicious

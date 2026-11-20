@@ -39,9 +39,10 @@ CREATE TABLE mappings (
 CREATE TABLE import_runs (
   id            bigserial PRIMARY KEY,
   source_id     text NOT NULL REFERENCES sources(id),
-  status        text NOT NULL CHECK (status IN ('running','succeeded','failed','aborted')),
+  status        text NOT NULL CHECK (status IN ('running','succeeded','unchanged_file','failed','aborted')),
   trigger       text NOT NULL DEFAULT 'manual' CHECK (trigger IN ('manual','schedule')),
   scheduled_for timestamptz,                 -- the slot this run satisfies
+  file_id       bigint,                      -- source_files.id parsed by this run
   source_meta   jsonb,                       -- parsed preamble metadata
   started_at    timestamptz NOT NULL DEFAULT now(),
   finished_at   timestamptz,
@@ -55,6 +56,19 @@ CREATE TABLE import_runs (
 );
 
 CREATE INDEX sources_due ON sources (next_run_at) WHERE enabled AND schedule IS NOT NULL;
+
+CREATE TABLE source_files (                 -- fetched files kept for reparse and audit
+  id            bigserial PRIMARY KEY,
+  source_id     text NOT NULL REFERENCES sources(id),
+  run_id        bigint NOT NULL REFERENCES import_runs(id),
+  sha256        bytea NOT NULL,
+  size_bytes    bigint NOT NULL,
+  etag          text,
+  last_modified timestamptz,
+  storage_ref   text NOT NULL,               -- object store key / large object / path
+  fetched_at    timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (source_id, sha256)
+);
 
 CREATE TABLE raw_records (
   source_id     text NOT NULL REFERENCES sources(id),
@@ -79,6 +93,7 @@ CREATE TABLE import_errors (
 ```
 
 Notes:
+- Stored payloads for pipelined sources include `_source` (sheet/row) and `_ctx` (section context).
 - `(source_id, natural_key)` scoping stops two setups overwriting each other.
 - `content_hash` makes re-imports cheap and gives accurate `unchanged` counts.
 - Optional history: `raw_record_versions` (append-only) if audit of changes is needed (open question).
