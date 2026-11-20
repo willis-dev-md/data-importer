@@ -1,6 +1,6 @@
 # data-importer
 
-A configurable import pipeline that pulls data from **CSV files**, **Excel workbooks** and **HTTP/JSON APIs** whose structure
+A configurable import pipeline that pulls data from **CSV files**, **Excel workbooks** and **HTTP/JSON APIs** or **MCP servers** whose structure
 differs per setup, lands it in **Postgres** exactly as received, and serves it through a **gRPC API**
 that applies a per-source mapping to present a stable, typed shape.
 
