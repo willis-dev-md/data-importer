@@ -44,7 +44,7 @@ setup, store the data in a database, and expose it through a gRPC API.
 ### Components
 
 1. **Source adapters** (`internal/source`): turn a source into a stream of `map[string]any` records plus a
-   natural key. Adapters do **no** business mapping. v1: `csv`, `xlsx`,  Each adapter can apply a declarative
+   natural key. Adapters do **no** business mapping. v1: `csv`, `xlsx`, `http_json`. (An `mcp` adapter is [parked](parked/mcp-source.md).) Each adapter can apply a declarative
    [row pipeline](mapping-spec.md#row-pipeline-table-for-csv-and-xlsx) (sections, fill-down, unpivot) for structure
    that needs row order. Fetched files are kept by hash (`source_files`) so a pipeline change is a **reparse**,
    not a re-download ([ADR-0004](adr/0004-structural-parsing-at-import.md)).

@@ -33,5 +33,9 @@ README.md (Develop section: make targets, test database); CHANGELOG.md
 docs/runbooks/local-development.md (build, test, start/stop the test database; Postgres-as-root and port-in-use fixes)
 
 ## Status
-in-progress
+validated
 ## Log
+- 2026-11-21 worker r1: pinned staticcheck v0.6.1 and buf v1.57.0 (latest require Go 1.26; repo uses Go 1.24); grpc-gateway pinned v2.27.2 for same reason.
+- 2026-11-21 validator r1 (code): PASS. documentor + runbook-refiner ran; validator docs-check: PASS.
+- 2026-11-21 orchestrator: repaired two README lines and one docs/design.md line damaged by an earlier edit helper (an `rm` helper replaced text with an empty string when parking the MCP design). Fixed here; not part of the task.
+- Decisions: tools pinned (staticcheck v0.6.1, buf v1.57.0) so go.mod stays `go 1.24.0` + `toolchain go1.24.7`; only pgx v5 added; unimplemented subcommands exit 1, unknown exit 2; testdb state file in /tmp. Recorded in docs/testing.md.

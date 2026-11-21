@@ -11,7 +11,8 @@ created by the task that introduces the behaviour.
 | [github-push-refused.md](github-push-refused.md) | `git push` returns 403 after attaching a repo |
 | [onboarding-a-new-source.md](onboarding-a-new-source.md) | inspecting a new CSV/Excel/zip/API source before writing config |
 | [factory-usage-ledger.md](factory-usage-ledger.md) | record or read per-task token usage; ledger errors |
+| [local-development.md](local-development.md) | build, test, start/stop the test database; Postgres-as-root, TMPDIR, go.mod bump, CI_REQUIRE_DB |
 
-Planned (created by the tasks in `factory/tasks/`): local-development, database-migrations, mapping-validation-errors,
+Planned (created by the tasks in `factory/tasks/`): database-migrations, mapping-validation-errors,
 import-failures, add-a-source, run-the-grpc-server, demo-and-smoke-test, source-layout-changed, reparse-and-file-retention,
 source-url-not-found, uk-hpi-monthly-update, ashe-annual-release.
