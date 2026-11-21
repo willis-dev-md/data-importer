@@ -33,3 +33,5 @@ Known limitations of the task 009 CLI, left as future work:
 - Files in `sources apply --dir` have no size cap.
 - A YAML parse error on a garbage file may echo a snippet of its content.
 - That a redirect to another host does not receive the auth token is covered by a unit test only, not by an end-to-end test.
+- `missing_policy: tombstone` is accepted in source config but nothing applies it yet and no code sets `deleted_at`, so `include_deleted` has no effect on real data until tombstoning is implemented.
+- The ephemeral test database is created with encoding SQL_ASCII (container locale), so tests do not exercise UTF-8 collation or encoding rules like production: create it with UTF8 (`initdb -E UTF8`) in `scripts/testdb.sh`.

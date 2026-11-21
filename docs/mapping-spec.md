@@ -44,6 +44,8 @@ missing_policy: keep      # keep | tombstone
 max_error_ratio: 0.05
 ```
 
+`missing_policy: tombstone` is accepted in source config but nothing applies it yet and no code sets `deleted_at`, so `include_deleted` has no effect on real data until tombstoning is implemented.
+
 #### Implemented behaviour (task 004)
 
 - **Strict config:** YAML is decoded strictly. Unknown keys are errors and validation errors name the field path

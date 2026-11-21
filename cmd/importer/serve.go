@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/willis-dev-md/data-importer/internal/server"
+	"github.com/willis-dev-md/data-importer/internal/store"
 )
 
 // runServe implements `importer serve`: it runs the gRPC server until SIGINT or
@@ -42,6 +43,11 @@ func serve(ctx context.Context, args []string, env func(string) string, stderr i
 		fmt.Fprintln(stderr, "importer serve: DATABASE_URL is not set")
 		return 1
 	}
+	scanLimit, err := server.ScanLimitFromEnv(env)
+	if err != nil {
+		fmt.Fprintf(stderr, "importer serve: %v\n", err)
+		return 2
+	}
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
 		fmt.Fprintf(stderr, "importer serve: %v\n", err)
@@ -59,7 +65,8 @@ func serve(ctx context.Context, args []string, env func(string) string, stderr i
 	} else {
 		log.Info("serving gRPC with TLS", "addr", lis.Addr().String())
 	}
-	srv := server.New(server.Options{Ping: pool.Ping, TLS: tlsCfg, Logger: log})
+	data := server.NewDataService(store.New(pool), server.DataOptions{ScanLimit: scanLimit, Logger: log})
+	srv := server.New(server.Options{Ping: pool.Ping, TLS: tlsCfg, Logger: log, Data: data})
 	if err := srv.Run(ctx, lis); err != nil {
 		fmt.Fprintf(stderr, "importer serve: %v\n", err)
 		return 1

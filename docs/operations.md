@@ -9,6 +9,7 @@
 | `AUTH_TOKENS_FILE` | token -> roles/sources map |
 | `IMPORT_CONCURRENCY` | max simultaneous import runs (default 4) |
 | `SOURCES_DIR` | directory of source + mapping YAML; default for `importer sources apply --dir` |
+| `SCAN_LIMIT` | `importer serve` only: raw rows one `ListRecords` call may map, default `50000`; must be a positive integer, otherwise `importer serve` exits 2 before it connects to the database ([details](#importer-serve)) |
 | token env vars | any name given in a source's `auth.token_env`; read at `importer run` time only |
 
 ## CLI
@@ -129,14 +130,40 @@ the value. File locations send no HTTP request, so `auth` is not used for them. 
 
 ### `importer serve`
 Runs the gRPC server (`dataimporter.v1.DataService`, `grpc.health.v1`, reflection) until SIGINT or SIGTERM. Takes no
-arguments (`importer serve extra` prints `usage: importer serve`, exit 2). Needs `DATABASE_URL`. All `DataService`
-methods return `Unimplemented` until task 011 ([api](api.md)).
+arguments (`importer serve extra` prints `usage: importer serve`, exit 2). Needs `DATABASE_URL`. It serves the
+`DataService` methods `GetRecord` and `ListRecords` with mapping on read ([api](api.md#implemented-task-011)).
+The other services are not in the proto yet.
 
 | Var | Effect |
 |---|---|
 | `GRPC_ADDR` | listen address, default `:8443` |
 | `DATABASE_URL` | Postgres DSN; pinged for health |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | both set: serve TLS (minimum TLS 1.2); neither set: plaintext; only one: error |
+| `SCAN_LIMIT` | raw rows one `ListRecords` call maps, default `50000`; unset or empty means the default; must be a positive integer |
+
+`SCAN_LIMIT` is checked at startup, before the database is opened. Real output (built into `bin/`, as `make build`
+does), with `DATABASE_URL` pointing at a closed port (`127.0.0.1:1`), so no connection was attempted:
+
+<!-- verify -->
+```bash
+go build -o bin/importer ./cmd/importer
+for v in abc 0; do
+  rc=0
+  SCAN_LIMIT=$v DATABASE_URL=postgres://postgres@127.0.0.1:1/x bin/importer serve || rc=$?
+  echo "exit $rc"
+  test "$rc" -eq 2
+done
+```
+
+    importer serve: SCAN_LIMIT must be a positive integer, got "abc"
+    exit 2
+    importer serve: SCAN_LIMIT must be a positive integer, got "0"
+    exit 2
+
+Tuning: a smaller limit makes each call cheaper and returns short pages with a continuation token sooner; clients
+must follow `next_page_token` until it is empty. Real run with `SCAN_LIMIT=100` on the ONS source: the same month
+walk returned all 454 records in 10 pages, and a sparse filter (`period_type = year`, 37 records) gave pages of 5,
+6, 6, 6, 6, 6 and 2 records. Details: [api](api.md#listrecords) (paging and scan limit).
 
 Startup errors (all exit 1, real output):
 
@@ -178,7 +205,7 @@ Known limitations:
 ### Proto workflow
 The API contract is `proto/dataimporter/v1/data.proto`; `gen/` is generated and committed. Generation is offline: `buf`
 and the plugins `protoc-gen-go` (v1.36.8) and `protoc-gen-go-grpc` (v1.5.1) run as local `go tool` dependencies, with no
-remote plugins. Config: `buf.yaml` (lint `STANDARD` minus the two rules explained in [api](api.md#implemented-task-010)),
+remote plugins. Config: `buf.yaml` (lint `STANDARD` minus the two rules explained in [api](api.md#implemented-task-011)),
 `buf.gen.yaml`.
 
 1. Edit `proto/`.

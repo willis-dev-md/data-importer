@@ -410,3 +410,34 @@ func (s *Store) TryAdvisoryLock(ctx context.Context, sourceID string) (unlock fu
 		})
 	}, true, nil
 }
+
+// ListRawPage is the keyset read used by the DataService: up to limit records of
+// the source with natural_key > afterKey ("" = from the start), ordered by
+// natural_key. Unless includeDeleted is set, tombstoned rows are not returned
+// (so they are not counted against a scan limit either).
+func (s *Store) ListRawPage(ctx context.Context, sourceID, afterKey string, limit int, includeDeleted bool) ([]RawRecord, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("list raw page: limit must be positive, got %d", limit)
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+rawColumns+` FROM raw_records
+WHERE source_id = $1 AND natural_key > $2 AND ($4 OR deleted_at IS NULL)
+ORDER BY natural_key LIMIT $3`,
+		sourceID, afterKey, limit, includeDeleted)
+	if err != nil {
+		return nil, fmt.Errorf("list raw page for %q: %w", sourceID, err)
+	}
+	defer rows.Close()
+	var out []RawRecord
+	for rows.Next() {
+		r, err := scanRaw(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list raw page for %q: %w", sourceID, err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list raw page for %q: %w", sourceID, err)
+	}
+	return out, nil
+}

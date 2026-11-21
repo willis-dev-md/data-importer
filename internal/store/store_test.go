@@ -572,3 +572,53 @@ func TestJSONBNumberRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestListRawPageDeleted(t *testing.T) {
+	ctx := context.Background()
+	s, pool := setup(t)
+	run, _ := s.CreateRun(ctx, "src", "manual")
+	if _, err := s.UpsertRaw(ctx, run, "src", []record.Record{rec("a", 1), rec("b", 2), rec("c", 3)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE raw_records SET deleted_at = now() WHERE source_id = 'src' AND natural_key = $1`, "b"); err != nil {
+		t.Fatal(err)
+	}
+	keys := func(includeDeleted bool, after string, limit int) []string {
+		t.Helper()
+		page, err := s.ListRawPage(ctx, "src", after, limit, includeDeleted)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, r := range page {
+			out = append(out, r.Key)
+		}
+		return out
+	}
+	tests := []struct {
+		deleted bool
+		after   string
+		limit   int
+		want    string
+	}{
+		{false, "", 10, "a,c"}, {true, "", 10, "a,b,c"}, {false, "a", 10, "c"}, {false, "", 1, "a"}, {true, "a", 1, "b"},
+	}
+	for _, tt := range tests {
+		if got := fmt.Sprint(keys(tt.deleted, tt.after, tt.limit)); got != "["+replaceComma(tt.want)+"]" {
+			t.Errorf("deleted=%v after=%q limit=%d: got %s, want %s", tt.deleted, tt.after, tt.limit, got, tt.want)
+		}
+	}
+	if _, err := s.ListRawPage(ctx, "src", "", 0, true); err == nil {
+		t.Error("limit 0 must fail")
+	}
+}
+
+func replaceComma(s string) string {
+	out := []byte(s)
+	for i, c := range out {
+		if c == ',' {
+			out[i] = ' '
+		}
+	}
+	return string(out)
+}

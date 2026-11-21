@@ -3,7 +3,8 @@
 All notable user-visible changes. Maintained by the `documentor` role. Newest first.
 
 ## Unreleased
-- `importer serve` runs the gRPC server (`GRPC_ADDR`, optional TLS via `TLS_CERT_FILE`/`TLS_KEY_FILE`, `grpc.health.v1` tied to the database, reflection, graceful shutdown); `DataService` (`GetRecord`, `ListRecords`) is defined in `proto/` with generated code in `gen/` and returns `Unimplemented` until task 011.
+- `GetRecord` and `ListRecords` are served by `importer serve`: mapped records, filters on canonical fields and `dimensions.<key>`, keyset pages (`page_size` default 50, max 1000) with a per-call scan limit (`SCAN_LIMIT`, default 50,000) and mapping errors per record; see [docs/api.md](docs/api.md).
+- `importer serve` runs the gRPC server (`GRPC_ADDR`, optional TLS via `TLS_CERT_FILE`/`TLS_KEY_FILE`, `grpc.health.v1` tied to the database, reflection, graceful shutdown); `DataService` (`GetRecord`, `ListRecords`) is defined in `proto/` with generated code in `gen/` and is served as described in the entry above.
 - `importer sources apply --dir <dir>` (default `$SOURCES_DIR`) registers sources and versioned mappings from files, all-or-nothing; `importer run --source <id> [--dry-run]` imports and prints a summary line (exit 0/1/2/3); source `auth.token_env` is resolved at run time and never stored; `run` marks runs left `running` by a dead process as failed.
 - Importer core (library, no CLI change): `importer.Run` imports a source into `raw_records` in batches with per-source locking, dry run, row errors in `import_errors`, `max_error_ratio` abort, shape and preamble metadata on the run; a hard-killed run stays `running` until the task 009 sweep.
 - Mapping evaluator (library, no CLI change): `mapping.Eval` applies a mapping to a raw payload with transforms, validators, period parsing and per-field errors; decimals are `float64` (precision limit documented in `docs/mapping-spec.md`).

@@ -4,7 +4,7 @@ A configurable import pipeline that pulls data from **CSV files**, **Excel workb
 differs per setup, lands it in **Postgres** exactly as received, and serves it through a **gRPC API**
 that applies a per-source mapping to present a stable, typed shape.
 
-> Status: **early**. `migrate`, `mapping validate`, `sources apply` and `run` (CSV sources) work; `serve` is planned. Start with [docs/design.md](docs/design.md).
+> Status: **early**. `migrate`, `mapping validate`, `sources apply` and `run` (CSV sources) work; `serve` runs the gRPC API (`GetRecord`, `ListRecords` with mapping on read). Start with [docs/design.md](docs/design.md).
 
 ## Approach in one paragraph
 
@@ -92,4 +92,4 @@ Test database: `eval "$(scripts/testdb.sh start)"` starts Postgres 16 in a temp 
 `DATABASE_URL` and `TESTDB_DIR`. `scripts/testdb.sh stop` stops it and deletes the directory; both are idempotent.
 Tests get a fresh database each via `internal/testutil`. Without `DATABASE_URL` DB tests skip; with
 `CI_REQUIRE_DB=1` they fail instead. Apply the schema with `importer migrate up|down|version` (needs `DATABASE_URL`; `down` rolls back one step;
-see `docs/operations.md`). The planned subcommand `serve` exits 1 with "not implemented"; unknown ones exit 2. `scripts/validate.sh` runs the full gate.
+see `docs/operations.md`). Unknown subcommands exit 2. `scripts/validate.sh` runs the full gate.

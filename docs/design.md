@@ -123,10 +123,12 @@ whole run unless `max_error_ratio` is exceeded.
 
 ### Read
 1. Client calls `ListRecords(source, filter, page)`.
-2. Server loads the active mapping version for the source (cached).
-3. Filters on canonical fields are translated to JSONB expressions using the mapping's field paths.
+2. Server loads the active mapping version for the source on every call (no cache; [ADR-0005](adr/0005-data-service-read-path.md)).
+3. The server walks the raw rows in natural-key order (keyset) and maps each payload; filters on canonical fields are
+   applied in Go to the mapped values, not translated to SQL (only `source_id` and `include_deleted` are pushed down).
 4. Each raw payload is mapped to `Record{id, source_id, fields, extra, mapping_errors}`.
-5. A record failing mapping is returned with `mapping_errors` rather than failing the call.
+5. A record failing mapping is returned with `mapping_errors` rather than failing the call; it never matches a filter on a failed field.
+6. A call maps at most `SCAN_LIMIT` rows; then it returns a short page with a continuation token. Details in [api](api.md#listrecords).
 
 ## 6. Why ELT
 

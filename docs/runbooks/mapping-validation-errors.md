@@ -149,9 +149,10 @@ the field is just omitted with no error.
   `[{period_start PARSE_FAILED "period \"Oct 1694\" does not match layout 2 Jan 2006"}]`. Fix: add the month-only layout.
   Layouts are tried in order and the first match wins.
 
-**Future / UNVERIFIED:** mapping errors are meant to reach API clients as `mapping_errors` on a record once the DataService exists
-(task 011). That path does not exist yet and was not run; until then these errors are only visible to Go callers of `mapping.Eval`.
-Also UNVERIFIED (not run): `email`/`url`/`regex` validator failures and TYPE_MISMATCH for `int`, `date` and period inputs (messages are
+**API clients:** runtime field errors reach gRPC clients as `mapping_errors` on the record (not a failed call). Checked with the
+real `importer serve` (task 011): `mapping_error field=value message="PARSE_FAILED: \"abc\" is not a number"`, and the other fields
+of the record are still returned. What to do: [run-the-grpc-server.md](run-the-grpc-server.md) (data calls table).
+**UNVERIFIED (not run):** `email`/`url`/`regex` validator failures and TYPE_MISMATCH for `int`, `date` and period inputs (messages are
 in `internal/mapping/convert.go`, `period.go`, `transform.go`); PARSE_FAILED from a failing transform.
 
 ## Verify

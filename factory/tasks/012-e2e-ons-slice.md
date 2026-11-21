@@ -30,5 +30,5 @@ README.md (Quick start, exercised by the e2e test); docs/roadmap.md (M0-M5 done)
 docs/runbooks/demo-and-smoke-test.md (run scripts/demo.sh, expected output, what a failure means)
 
 ## Status
-pending
+in-progress
 ## Log
