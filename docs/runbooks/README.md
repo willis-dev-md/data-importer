@@ -17,6 +17,7 @@ created by the task that introduces the behaviour.
 | [import-failures.md](import-failures.md) | an import run `failed`, `aborted` (max_error_ratio), `already running`, was cancelled, or is stuck `running` (abandoned-run sweep); reading `import_runs` / `import_errors`; `importer run` exit codes |
 | [mapping-validation-errors.md](mapping-validation-errors.md) | `importer mapping validate` prints issues or exits 1/2; every validation code with fix; runtime field errors (MISSING_REQUIRED, TYPE_MISMATCH, PARSE_FAILED, VALIDATION_FAILED) |
 | [run-the-grpc-server.md](run-the-grpc-server.md) | start/stop `importer serve` (plaintext, TLS), health `SERVING`/`NOT_SERVING`, reflection, graceful shutdown; startup errors; `ListRecords`/`GetRecord` checks, short pages and `next_page_token`, `SCAN_LIMIT`; data-call errors by code; `mapping_errors` in responses; `Internal` in the server log |
+| [demo-and-smoke-test.md](demo-and-smoke-test.md) | run `scripts/demo.sh` (ONS CSV to Postgres to gRPC), expected output, leftover processes after an interrupted run; the e2e test `go test ./internal/e2e`; release smoke-test checklist |
 
 ## Seeds for later runbooks
 
@@ -28,5 +29,5 @@ Facts from task logs, not yet verified as operator procedures. The owning task c
   covered in import-failures.md).
 
 Planned (created by the tasks in `factory/tasks/`):
-demo-and-smoke-test, source-layout-changed, reparse-and-file-retention,
+source-layout-changed, reparse-and-file-retention,
 source-url-not-found, uk-hpi-monthly-update, ashe-annual-release.

@@ -1,6 +1,6 @@
 # Factory usage report
 
-Ledger: `factory/metrics/usage.jsonl`: 46 rows, 1 session(s). Usage is deduplicated per API request. **Cost: n/a: fill `factory/metrics/prices.json` (per-million-token prices for each model) to see dollars.** Shares below use fresh tokens (input + cache writes + output).
+Ledger: `factory/metrics/usage.jsonl`: 76 rows, 1 session(s). Usage is deduplicated per API request. **Cost: n/a: fill `factory/metrics/prices.json` (per-million-token prices for each model) to see dollars.** Shares below use fresh tokens (input + cache writes + output).
 
 `cache read` is cheap per token but large; it is shown separately and not counted in 'fresh'.
 
@@ -77,13 +77,62 @@ Ledger: `factory/metrics/usage.jsonl`: 46 rows, 1 session(s). Usage is deduplica
 | documentor · docs · claude-sonnet-5-5 | 1 | 7 | 14 | 34,072 | 197,683 | 4,610 | 15% | n/a |
 | orchestrator · orchestrate · claude-sonnet-5-5 | - | 9 | 29 | 12,268 | 4,760,676 | 5,124 | 7% | n/a |
 
-### Task 008: 3 launches, rounds 2, verdicts PASS
+### Task 008: 7 launches, rounds 3, verdicts PASS→PASS
 
 | role · phase · model | launches | requests | input | cache write | cache read | output | share | est. cost |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| worker · code · claude-sonnet-5-5 | 2 | 21 | 42 | 77,873 | 674,828 | 25,113 | 66% | n/a |
-| validator · validate · claude-sonnet-5-5 | 1 | 8 | 16 | 32,898 | 187,777 | 5,628 | 25% | n/a |
-| orchestrator · orchestrate · claude-sonnet-5-5 | - | 7 | 21 | 9,986 | 3,795,656 | 4,052 | 9% | n/a |
+| validator · validate · claude-sonnet-5-5 | 2 | 23 | 46 | 158,979 | 404,664 | 11,244 | 34% | n/a |
+| worker · code · claude-sonnet-5-5 | 3 | 33 | 66 | 134,836 | 918,642 | 29,868 | 33% | n/a |
+| runbook-refiner · runbook · claude-sonnet-5-5 | 1 | 12 | 24 | 54,270 | 405,455 | 12,231 | 13% | n/a |
+| orchestrator · orchestrate · claude-sonnet-5-5 | - | 31 | 91 | 39,661 | 17,320,631 | 23,972 | 13% | n/a |
+| documentor · docs · claude-sonnet-5-5 | 1 | 5 | 10 | 34,800 | 92,833 | 3,484 | 8% | n/a |
+
+### Task 009: 4 launches, rounds 1, verdicts PASS
+
+| role · phase · model | launches | requests | input | cache write | cache read | output | share | est. cost |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| worker · code · claude-sonnet-5-5 | 1 | 20 | 40 | 106,945 | 1,456,377 | 39,654 | 47% | n/a |
+| documentor · docs · claude-sonnet-5-5 | 1 | 13 | 26 | 46,783 | 480,515 | 10,455 | 18% | n/a |
+| validator · validate · claude-sonnet-5-5 | 1 | 15 | 30 | 47,375 | 468,209 | 8,484 | 18% | n/a |
+| runbook-refiner · runbook · claude-sonnet-5-5 | 1 | 22 | 44 | 40,923 | 725,445 | 14,273 | 18% | n/a |
+
+### Task 010: 6 launches, rounds 2, verdicts FAIL→PASS
+
+| role · phase · model | launches | requests | input | cache write | cache read | output | share | est. cost |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| worker · code · claude-sonnet-5-5 | 2 | 23 | 46 | 71,722 | 622,570 | 25,168 | 32% | n/a |
+| validator · validate · claude-sonnet-5-5 | 2 | 24 | 48 | 69,846 | 607,346 | 12,016 | 27% | n/a |
+| runbook-refiner · runbook · claude-sonnet-5-5 | 1 | 19 | 38 | 37,906 | 541,443 | 14,914 | 18% | n/a |
+| documentor · docs · claude-sonnet-5-5 | 1 | 11 | 22 | 43,101 | 332,758 | 8,689 | 17% | n/a |
+| orchestrator · orchestrate · claude-sonnet-5-5 | - | 11 | 37 | 11,459 | 6,689,617 | 5,147 | 6% | n/a |
+
+### Task 011: 7 launches, rounds 3, verdicts FAIL→PASS
+
+| role · phase · model | launches | requests | input | cache write | cache read | output | share | est. cost |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| orchestrator · orchestrate · claude-sonnet-5-5 | - | 23 | 62 | 611,776 | 14,275,376 | 14,018 | 47% | n/a |
+| worker · code · claude-sonnet-5-5 | 2 | 44 | 88 | 189,990 | 2,384,096 | 55,583 | 18% | n/a |
+| runbook-refiner · runbook · claude-haiku-5-5 | 1 | 43 | 86 | 105,981 | 2,826,507 | 59,389 | 12% | n/a |
+| documentor · docs · claude-haiku-5-5 | 1 | 40 | 80 | 107,281 | 2,912,184 | 47,214 | 12% | n/a |
+| validator · validate · claude-sonnet-5-5 | 2 | 28 | 56 | 95,596 | 874,486 | 21,494 | 9% | n/a |
+| documentor · docs · claude-sonnet-5-5 | 1 | 5 | 10 | 18,455 | 64,216 | 1,705 | 2% | n/a |
+| orchestrator · orchestrate · <synthetic> | - | 4 | 0 | 0 | 0 | 0 | 0% | n/a |
+
+### Task 012: 4 launches, rounds 1, verdicts PASS
+
+| role · phase · model | launches | requests | input | cache write | cache read | output | share | est. cost |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| documentor · docs · claude-haiku-5-5 | 1 | 25 | 50 | 86,952 | 1,425,801 | 38,757 | 35% | n/a |
+| runbook-refiner · runbook · claude-haiku-5-5 | 1 | 27 | 54 | 80,710 | 1,475,734 | 42,672 | 35% | n/a |
+| worker · code · claude-sonnet-5-5 | 1 | 8 | 16 | 34,742 | 201,169 | 10,111 | 13% | n/a |
+| validator · validate · claude-sonnet-5-5 | 1 | 16 | 32 | 35,375 | 402,352 | 7,357 | 12% | n/a |
+| orchestrator · orchestrate · claude-sonnet-5-5 | - | 10 | 29 | 12,930 | 6,732,582 | 4,688 | 5% | n/a |
+
+### Task shared: 0 launches, rounds 0, verdicts n/a
+
+| role · phase · model | launches | requests | input | cache write | cache read | output | share | est. cost |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| orchestrator · orchestrate · claude-sonnet-5-5 | - | 17 | 53 | 24,875 | 10,002,107 | 9,518 | 100% | n/a |
 
 ### Task spike: 2 launches, rounds 1, verdicts n/a
 
@@ -97,7 +146,7 @@ Ledger: `factory/metrics/usage.jsonl`: 46 rows, 1 session(s). Usage is deduplica
 
 | role · phase · model | launches | requests | input | cache write | cache read | output | share | est. cost |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| orchestrator · orchestrate · claude-sonnet-5-5 | - | 231 | 517 | 898,735 | 52,988,373 | 452,923 | 100% | n/a |
+| orchestrator · orchestrate · claude-sonnet-5-5 | - | 237 | 530 | 905,184 | 56,975,103 | 460,604 | 100% | n/a |
 
 ## Cross-task review: where tokens go and which refinement it points to
 
@@ -105,14 +154,14 @@ Ledger: `factory/metrics/usage.jsonl`: 46 rows, 1 session(s). Usage is deduplica
 
 | role | launches | fresh tokens | share | cache read | est. cost |
 |---|---:|---:|---:|---:|---:|
-| orchestrator | - | 1,544,052 | 52% | 97,409,108 | n/a |
-| worker | 10 | 661,071 | 22% | 4,005,274 | n/a |
-| validator | 12 | 376,332 | 13% | 1,872,062 | n/a |
-| documentor | 8 | 180,585 | 6% | 755,964 | n/a |
-| runbook-refiner | 5 | 159,444 | 5% | 920,169 | n/a |
-| Explore | 1 | 60,203 | 2% | 114,132 | n/a |
+| orchestrator | - | 2,302,452 | 41% | 152,620,495 | n/a |
+| worker | 17 | 1,256,918 | 22% | 8,913,300 | n/a |
+| validator | 19 | 805,768 | 14% | 4,441,342 | n/a |
+| documentor | 14 | 628,459 | 11% | 6,064,271 | n/a |
+| runbook-refiner | 10 | 622,959 | 11% | 6,894,753 | n/a |
+| Explore | 1 | 60,203 | 1% | 114,132 | n/a |
 
-**Launches per task:** average 4.2 (max 7). Each launch pays a cold-start prefix (below); fewer launches is the biggest lever.
+**Launches per task:** average 4.9 (max 7). Each launch pays a cold-start prefix (below); fewer launches is the biggest lever.
 
 **Launches the spec said were unnecessary (`none: <reason>`)**: refinement 1
 
@@ -120,52 +169,57 @@ Ledger: `factory/metrics/usage.jsonl`: 46 rows, 1 session(s). Usage is deduplica
 |---|---|---:|---:|
 | 003 | runbook-refiner | 1 | 13,483 |
 
-**Second validator pass (phase docs-check):** 3 launches, 63,290 fresh tokens vs 313,042 for the code validations: refinement 2
+**Second validator pass (phase docs-check):** 3 launches, 63,290 fresh tokens vs 742,478 for the code validations: refinement 2
 
-**Gate output read by agents:** 59,849 characters (~14,962 tokens, 4 chars/token estimate) across 23 agents: refinement 3
+**Gate output read by agents:** 151,093 characters (~37,773 tokens, 4 chars/token estimate) across 39 agents: refinement 3
 
 **Longest agent reports (words) and orchestrator share:** refinement 4
 
-- task 004 validator validate: 502 words, 7,884 output tokens
-- task 003 validator validate: 490 words, 4,874 output tokens
-- task 008 validator validate: 470 words, 5,628 output tokens
-- orchestrator: 1,544,052 fresh tokens, 97,409,108 cache-read tokens (52% of all fresh tokens)
+- task 011 validator validate: 668 words, 11,539 output tokens
+- task 009 validator validate: 541 words, 8,484 output tokens
+- task 012 validator validate: 536 words, 7,357 output tokens
+- orchestrator: 2,302,452 fresh tokens, 152,620,495 cache-read tokens (41% of all fresh tokens)
 
 **Role × model with quality guard** (refinement 5: only downgrade a model where rework does not rise)
 
 | role | model | launches | avg fresh/launch | PASS | FAIL | UNVERIFIED mentions |
 |---|---|---:|---:|---:|---:|---:|
 | Explore | claude-haiku-5-5 | 1 | 60,203 | 0 | 0 | 0 |
-| documentor | claude-haiku-5-5 | 1 | 8,863 | 0 | 0 | 0 |
-| documentor | claude-sonnet-5-5 | 7 | 24,531 | 0 | 0 | 7 |
-| runbook-refiner | claude-sonnet-5-5 | 5 | 31,888 | 0 | 0 | 5 |
-| validator | claude-sonnet-5-5 | 12 | 31,361 | 12 | 0 | 2 |
-| worker | claude-sonnet-5-5 | 10 | 66,107 | 0 | 0 | 0 |
+| documentor | claude-haiku-5-5 | 3 | 96,399 | 0 | 0 | 2 |
+| documentor | claude-sonnet-5-5 | 11 | 30,842 | 0 | 0 | 10 |
+| runbook-refiner | claude-haiku-5-5 | 2 | 144,446 | 0 | 0 | 3 |
+| runbook-refiner | claude-sonnet-5-5 | 8 | 41,758 | 0 | 0 | 8 |
+| validator | claude-sonnet-5-5 | 19 | 42,408 | 17 | 2 | 2 |
+| worker | claude-sonnet-5-5 | 17 | 73,936 | 0 | 0 | 0 |
 
 **Rework (rounds above 1 on code/validate):** better specs and test-linked criteria: refinement 6
 
 | task | rounds | rework fresh tokens | share of task |
 |---|---:|---:|---:|
 | 003 | 2 | 72,681 | 29% |
-| 008 | 2 | 31,941 | 23% |
+| 008 | 3 | 225,410 | 51% |
+| 010 | 2 | 90,746 | 32% |
+| 011 | 3 | 215,550 | 31% |
 
 **Same file read by 3+ agents in one task** (section-scoped refs or summaries): refinement 8
 
 - /home/user/data-importer/factory/tasks/003-store-and-record.md: 5 agents (task 003)
+- /home/user/data-importer/factory/tasks/009-cli-sources-run.md: 4 agents (task 009)
+- /home/user/data-importer/internal/importer/importer.go: 4 agents (task 008)
+- /home/user/data-importer/factory/tasks/008-importer-core.md: 4 agents (task 008)
 - /home/user/data-importer/factory/tasks/002-schema-migrations.md: 4 agents (task 002)
-- /home/user/data-importer/factory/tasks/008-importer-core.md: 3 agents (task 008)
-- /home/user/data-importer/factory/tasks/006-mapping-parse-validate.md: 3 agents (task 006)
-- /home/user/data-importer/internal/record/record.go: 3 agents (task 003)
-- /home/user/data-importer/.claude/agents/validator.md: 3 agents (task 003)
+- /home/user/data-importer/factory/tasks/011-data-service.md: 3 agents (task 011)
+- /home/user/data-importer/factory/tasks/010-grpc-skeleton.md: 3 agents (task 010)
+- /home/user/data-importer/.claude/agents/worker.md: 3 agents (task 008)
 
 **Cold-start prefix and cache efficiency per role** (refinements 10 and 'restrict tools')
 
 | role | median prefix tokens | cache-read ratio |
 |---|---:|---:|
 | Explore | 55,012 | 66% |
-| documentor | 11,572 | 83% |
-| runbook-refiner | 11,343 | 88% |
-| validator | 10,683 | 85% |
-| worker | 11,346 | 90% |
+| documentor | 12,244 | 92% |
+| runbook-refiner | 12,421 | 94% |
+| validator | 11,582 | 86% |
+| worker | 11,580 | 91% |
 
 _Attribution notes: orchestrator requests are assigned to the task whose agent-launch window contains them; requests between tasks are `unattributed`, overlapping windows are `shared`._

@@ -3,6 +3,7 @@
 All notable user-visible changes. Maintained by the `documentor` role. Newest first.
 
 ## Unreleased
+- `scripts/demo.sh` imports the ONS L55O fixture and queries it over gRPC on a temporary database (README Quick start has the steps); an end-to-end test (`internal/e2e`) asserts the same counts.
 - `GetRecord` and `ListRecords` are served by `importer serve`: mapped records, filters on canonical fields and `dimensions.<key>`, keyset pages (`page_size` default 50, max 1000) with a per-call scan limit (`SCAN_LIMIT`, default 50,000) and mapping errors per record; see [docs/api.md](docs/api.md).
 - `importer serve` runs the gRPC server (`GRPC_ADDR`, optional TLS via `TLS_CERT_FILE`/`TLS_KEY_FILE`, `grpc.health.v1` tied to the database, reflection, graceful shutdown); `DataService` (`GetRecord`, `ListRecords`) is defined in `proto/` with generated code in `gen/` and is served as described in the entry above.
 - `importer sources apply --dir <dir>` (default `$SOURCES_DIR`) registers sources and versioned mappings from files, all-or-nothing; `importer run --source <id> [--dry-run]` imports and prints a summary line (exit 0/1/2/3); source `auth.token_env` is resolved at run time and never stored; `run` marks runs left `running` by a dead process as failed.

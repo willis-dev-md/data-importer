@@ -30,5 +30,9 @@ README.md (Quick start, exercised by the e2e test); docs/roadmap.md (M0-M5 done)
 docs/runbooks/demo-and-smoke-test.md (run scripts/demo.sh, expected output, what a failure means)
 
 ## Status
-in-progress
+validated
 ## Log
+- Round 1 (worker): added `internal/e2e/e2e_test.go` (real binary; file:// source copy; HTTP(S)_PROXY set to closed port 127.0.0.1:1 for every child so any outbound dial fails the run; counts 642/454/37/151/108; spot records matched by period_type+period_start since the label is not exposed; second run `unchanged=642`; SIGTERM exit 0), `scripts/demo.sh` and `scripts/demo-client/main.go` (tiny client used only when grpcurl is absent). demo.sh creates its own database, needs `psql` and `python3`.
+- 2026-11-21 validator r1: PASS (counts re-derived with Python; four mutations each made the e2e test fail; demo.sh: normal, twice in a row, SIGINT 130, SIGTERM 143, forced failure all clean up). documentor then runbook-refiner (sequential, shared database) ran; deterministic docs check PASS. Orchestrator corrected one stale line in docs/testing.md (Ctrl+C cleanup was reported UNVERIFIED but both validator and runbook-refiner verified it).
+- Honest limits: "no network" is established by code reading (file:// never uses net/http; the closed-port proxy guard covers http(s) only and Go skips proxies for loopback); `unshare -n` was not usable here; the grpcurl branch of demo.sh was not run (grpcurl not installed); demo.sh needs psql and python3.
+- Milestones M0-M5 (tasks 001-012) are complete.
