@@ -33,5 +33,5 @@ README.md (Develop section: make targets, test database); CHANGELOG.md
 docs/runbooks/local-development.md (build, test, start/stop the test database; Postgres-as-root and port-in-use fixes)
 
 ## Status
-pending
+in-progress
 ## Log
