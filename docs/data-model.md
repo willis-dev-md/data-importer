@@ -17,7 +17,7 @@ CREATE TABLE mapping_templates (            -- shared mappings referenced as nam
 CREATE TABLE sources (
   id            text PRIMARY KEY,            -- slug, e.g. "acme-csv"
   group_id      text REFERENCES source_groups(id),   -- null for standalone sources
-  kind          text NOT NULL CHECK (kind IN ('csv','http_json')),
+  kind          text NOT NULL CHECK (kind IN ('csv','xlsx','http_json')),
   config        jsonb NOT NULL,              -- parsed source config (no secrets)
   active_mapping_version int,
   schedule      jsonb,                       -- null = manual only
@@ -97,4 +97,10 @@ Notes:
 - `(source_id, natural_key)` scoping stops two setups overwriting each other.
 - `content_hash` makes re-imports cheap and gives accurate `unchanged` counts.
 - Optional history: `raw_record_versions` (append-only) if audit of changes is needed (open question).
-- Migrations via `golang-migrate` in `migrations/`.
+- Migrations via `golang-migrate` in `migrations/` (embedded; `store.Migrate`; applied by `importer migrate up|down|version`, `down` rolls back one step). `0001_core` creates only `sources`, `mappings`, `import_runs`, `raw_records`, `import_errors`; groups, templates, `source_files`, and the `group_id`/`schedule`/`enabled`/`next_run_at`/`last_scheduled_at` columns come in later migrations. Until `source_files` exists, `import_runs.file_id` has no foreign key.
+
+Decisions (task 002):
+- Runner: golang-migrate v4.18.3 with the pgx5 driver and an `iofs` source over SQL embedded by `migrations/embed.go`. The applied version is stored in `schema_migrations`.
+- `down` rolls back one step; at version 0 it is a no-op. `up` is idempotent.
+- `sources.kind` CHECK allows `csv`, `xlsx`, `http_json` (as in `0001_core.up.sql`).
+- The `sources_due` index and the `import_runs.file_id` foreign key are deliberately left to later migrations; `file_id` is a plain `bigint` for now.

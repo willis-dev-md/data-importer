@@ -29,5 +29,12 @@ docs/data-model.md (as implemented); docs/operations.md (`importer migrate`); CH
 docs/runbooks/database-migrations.md (apply, check version, roll back one step, dirty-migration recovery)
 
 ## Status
-pending
+validated
 ## Log
+- Used golang-migrate v4.18.3 (pgx/v5 driver, iofs source); go.mod `go`/`toolchain` unchanged.
+- `migrations/embed.go` added (needed for `embed`; slightly beyond the `*.sql` scope).
+- Omitted per scope: source_groups, mapping_templates, source_files, sources.group_id/schedule/enabled/next_run_at/last_scheduled_at, and the FK on import_runs.file_id (no source_files yet). The `idx sources_due` index is omitted with them.
+- `kind` CHECK now also allows 'xlsx' (project imports Excel); data-model.md updated.
+- `down` rolls back one step; down at version 0 is a no-op; `Migrate` returns the version.
+- 2026-11-21 validator r1 (code): PASS. documentor + runbook-refiner ran; validator docs-check: PASS. The docs-check also confirmed that `up` works after a clean `down` (the runbook's "version = 0" note only concerns a hand-edited row).
+- Decisions: golang-migrate v4.18.3 (pgx5 + iofs); `down` rolls back one step, no-op at version 0; sources.kind CHECK allows csv, xlsx, http_json; sources_due index and import_runs.file_id FK deferred; migrations/embed.go added for embed. Recorded in docs/data-model.md.

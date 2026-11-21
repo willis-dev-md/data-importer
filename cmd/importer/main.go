@@ -2,9 +2,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
+
+	"github.com/willis-dev-md/data-importer/internal/store"
 )
 
 // version is the build version; override with -ldflags "-X main.version=...".
@@ -13,7 +17,7 @@ var version = "0.0.0-dev"
 const usage = `usage: importer <command> [args]
 
 commands:
-  migrate   apply database migrations (planned)
+  migrate   apply database migrations: migrate up|down|version
   serve     run the gRPC server and scheduler (planned)
   run       run one import for a source (planned)
   mapping   validate and materialize mappings (planned)
@@ -34,13 +38,43 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return 0
-	case "migrate", "serve", "run", "mapping":
+	case "migrate":
+		return runMigrate(args[1:], os.Getenv("DATABASE_URL"), stdout, stderr)
+	case "serve", "run", "mapping":
 		fmt.Fprintf(stderr, "importer: %q is not implemented yet\n", args[0])
 		return 1
 	default:
 		fmt.Fprintf(stderr, "importer: unknown command %q\n\n%s", args[0], usage)
 		return 2
 	}
+}
+
+// runMigrate implements `importer migrate up|down|version`. down rolls back one migration.
+func runMigrate(args []string, databaseURL string, stdout, stderr io.Writer) int {
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "usage: importer migrate up|down|version")
+		return 2
+	}
+	dir := store.Direction(args[0])
+	switch dir {
+	case store.Up, store.Down, store.Version:
+	default:
+		fmt.Fprintf(stderr, "importer migrate: unknown direction %q (want up, down or version)\n", args[0])
+		return 2
+	}
+	if databaseURL == "" {
+		fmt.Fprintln(stderr, "importer migrate: DATABASE_URL is not set")
+		return 1
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	v, err := store.Migrate(ctx, databaseURL, dir)
+	if err != nil {
+		fmt.Fprintf(stderr, "importer migrate %s: %v\n", dir, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "version %d\n", v)
+	return 0
 }
 
 func main() {

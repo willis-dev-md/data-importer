@@ -12,7 +12,8 @@ created by the task that introduces the behaviour.
 | [onboarding-a-new-source.md](onboarding-a-new-source.md) | inspecting a new CSV/Excel/zip/API source before writing config |
 | [factory-usage-ledger.md](factory-usage-ledger.md) | record or read per-task token usage; ledger errors |
 | [local-development.md](local-development.md) | build, test, start/stop the test database; Postgres-as-root, TMPDIR, go.mod bump, CI_REQUIRE_DB |
+| [database-migrations.md](database-migrations.md) | `importer migrate` up/down/version, safe apply, `Dirty database version` recovery, psql schema inspection |
 
-Planned (created by the tasks in `factory/tasks/`): database-migrations, mapping-validation-errors,
+Planned (created by the tasks in `factory/tasks/`): mapping-validation-errors,
 import-failures, add-a-source, run-the-grpc-server, demo-and-smoke-test, source-layout-changed, reparse-and-file-retention,
 source-url-not-found, uk-hpi-monthly-update, ashe-annual-release.

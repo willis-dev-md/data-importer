@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS import_errors;
+DROP TABLE IF EXISTS raw_records;
+DROP TABLE IF EXISTS import_runs;
+DROP TABLE IF EXISTS mappings;
+DROP TABLE IF EXISTS sources;

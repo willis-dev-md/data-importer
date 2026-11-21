@@ -21,6 +21,32 @@
     importer mapping validate <file>
     importer mapping materialize <source>
 
+### `importer migrate`
+Reads `DATABASE_URL` (required). Applies the embedded SQL in `migrations/` with golang-migrate; the applied version
+is kept in the `schema_migrations` table. Each form prints the resulting version.
+
+| Command | Effect |
+|---|---|
+| `importer migrate up` | apply all pending migrations; safe to repeat |
+| `importer migrate down` | roll back **one** migration; no-op at version 0 |
+| `importer migrate version` | print the current version (`version 0` on an empty database) |
+
+Output and exit codes, run against an empty Postgres 16:
+
+    $ importer migrate version     -> version 0   (exit 0)
+    $ importer migrate up          -> version 1   (exit 0)
+    $ importer migrate up          -> version 1   (exit 0, nothing to do)
+    $ importer migrate down        -> version 0   (exit 0)
+    $ importer migrate down        -> version 0   (exit 0, no-op)
+    $ importer migrate up         # DATABASE_URL unset
+    importer migrate: DATABASE_URL is not set                                  (exit 1)
+    $ importer migrate up         # nothing listening
+    importer migrate up: connect to database: failed to open database: ... connection refused   (exit 1)
+    $ importer migrate sideways
+    importer migrate: unknown direction "sideways" (want up, down or version)  (exit 2)
+
+Missing arguments also exit 2 with `usage: importer migrate up|down|version`.
+
 Scheduling: built in. `importer serve` runs the scheduler for every source with a `schedule`, so deploy at least
 one replica (several are safe). Concurrent runs for one source are prevented with row locks plus a Postgres
 advisory lock. `importer schedule list` shows each source's next run; `importer run --source <id>` forces one.

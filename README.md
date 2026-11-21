@@ -65,4 +65,5 @@ Test database: `eval "$(scripts/testdb.sh start)"` starts Postgres 16 in a temp 
 (127.0.0.1 only, `trust` auth; as the `postgres` OS user via `runuser` when run as root) and exports
 `DATABASE_URL` and `TESTDB_DIR`. `scripts/testdb.sh stop` stops it and deletes the directory; both are idempotent.
 Tests get a fresh database each via `internal/testutil`. Without `DATABASE_URL` DB tests skip; with
-`CI_REQUIRE_DB=1` they fail instead. Planned subcommands (`migrate`, `serve`, `run`, `mapping`) exit 1 with "not implemented"; unknown ones exit 2. `scripts/validate.sh` runs the full gate.
+`CI_REQUIRE_DB=1` they fail instead. Apply the schema with `importer migrate up|down|version` (needs `DATABASE_URL`; `down` rolls back one step;
+see `docs/operations.md`). Planned subcommands (`serve`, `run`, `mapping`) exit 1 with "not implemented"; unknown ones exit 2. `scripts/validate.sh` runs the full gate.
