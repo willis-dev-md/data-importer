@@ -16,6 +16,13 @@ docs disagree, change the docs in the same task or raise it, never silently dive
 - Errors: wrap with `%w`; no panics on bad input; bad rows are data (recorded), not crashes.
 
 
+## Communication with the user
+- Keep messages short: about half the usual length.
+- Message the user only for: a decision they must make; a finished spike or task (one short summary: result, next step); a blocker or anything risky or irreversible.
+- No progress narration, no restating what agents or hooks said, no "waiting" updates. Give a one-line status only when asked.
+- Put detail in files (task Log, docs, reports) and link to it instead of pasting it.
+- Hook reminders (e.g. about uncommitted changes): reply in one line, or not at all.
+
 ## Software factory
 
 Work is produced by a factory: an **orchestrator** (the main session) splits work into tasks and four roles do it:
