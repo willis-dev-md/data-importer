@@ -3,6 +3,7 @@
 All notable user-visible changes. Maintained by the `documentor` role. Newest first.
 
 ## Unreleased
+- Importer core (library, no CLI change): `importer.Run` imports a source into `raw_records` in batches with per-source locking, dry run, row errors in `import_errors`, `max_error_ratio` abort, shape and preamble metadata on the run; a hard-killed run stays `running` until the task 009 sweep.
 - Mapping evaluator (library, no CLI change): `mapping.Eval` applies a mapping to a raw payload with transforms, validators, period parsing and per-field errors; decimals are `float64` (precision limit documented in `docs/mapping-spec.md`).
 - `importer mapping validate [--schema file] <file>` checks a mapping against the new `canonical-schema.yaml` (observation, v2) and reports `path: code: message` issues (exit 0/1/2); the `acme-csv` and `partner-api` examples were rewritten as observation mappings.
 - CSV metadata preamble (`csv.preamble` with `lines` or `until`), headerless files with named columns, `@meta.<Key>` natural keys, and `_meta`/`_source` in each record; the ONS L55O example now loads and parses its fixture (642 records, 0 errors).

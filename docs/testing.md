@@ -19,6 +19,11 @@
 ## Definition of done per task
 Spec acceptance criteria met, gates green, and independently reviewed.
 
+## Test isolation rule (task 008)
+Integration tests of all packages share ONE Postgres cluster and run in parallel. Any query against a cluster-wide
+view or function (`pg_locks`, `pg_stat_activity`, `pg_terminate_backend`) must be scoped to the test's own database
+and keys. A test that terminated other packages' lock sessions caused a flaky 600 s hang; fixed in
+`internal/store/store_test.go`.
 
 ## Decisions (task 001, scaffold)
 - **Test database:** `scripts/testdb.sh start|stop` runs an ephemeral Postgres 16 (as `postgres` via `runuser` when root); state is kept in `/tmp/data-importer-testdb.<uid>.state`. `internal/testutil` offers `DatabaseURL`, `NewDatabaseURL` (fresh database per test) and `DB` (pgx pool). Tests skip when `DATABASE_URL` is unset, but FAIL when `CI_REQUIRE_DB=1` (used by `scripts/validate.sh`).

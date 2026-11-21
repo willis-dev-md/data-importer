@@ -21,6 +21,7 @@ Groups, schedules, the gRPC server, `infer`, `reparse`.
 - [ ] `SOURCES_DIR` environment variable is the default for `--dir`; missing required env/args give a usage error (exit 2), not a stack trace.
 - [ ] Secrets: source configs that reference `token_env` etc. are resolved from the environment at run time and never stored in the DB or printed; a test greps logs and the stored `config` jsonb for the secret value.
 - [ ] End-to-end CLI test (built binary via `exec`, real Postgres): migrate, apply a temp dir containing the ONS source+mapping with `location` pointing at the fixture, run twice, assert summaries and DB counts (642 then 642 unchanged).
+- [ ] Abandoned runs: at the start of `importer run` (and the future server), runs left in status `running` whose source advisory lock is NOT held by any live session are marked `failed` with error `abandoned (process died)` and `finished_at` set (a hard kill/OOM cannot run deferred cleanup). Tested with a real database by inserting a stale `running` row, and a LIVE run (lock held) is never touched. (Found in task 008 validation: a panic or kill leaves the row `running` forever.)
 - [ ] `scripts/validate.sh` passes.
 
 ## Docs impact

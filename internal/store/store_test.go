@@ -429,12 +429,24 @@ func TestAdvisoryLockReleasedOnConnectionLoss(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("lock not acquired: ok=%v err=%v", ok, err)
 	}
-	// Kill the backend holding the advisory lock (not our own connection).
+	// pg_locks is cluster-wide and tests in other packages (and other tests in
+	// this one) hold the same advisory key in their own databases. A second
+	// database holding the same source's lock acts as a bystander that must
+	// survive the termination below.
+	bystander, _ := setup(t)
+	bUnlock, bOK, err := bystander.TryAdvisoryLock(ctx, "src")
+	if err != nil || !bOK {
+		t.Fatalf("bystander lock not acquired: ok=%v err=%v", bOK, err)
+	}
+	defer bUnlock()
+	// Kill only the backend holding this database's lock for "src" (not our own connection).
 	var killed int
 	err = pool.QueryRow(ctx, `
 SELECT count(*) FROM (
   SELECT pg_terminate_backend(l.pid) FROM pg_locks l
   WHERE l.locktype = 'advisory' AND l.granted AND l.pid <> pg_backend_pid()
+    AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+    AND ((l.classid::bigint << 32) | l.objid::bigint) = hashtextextended('data-importer:source:src', 0)
 ) x`).Scan(&killed)
 	if err != nil || killed != 1 {
 		t.Fatalf("terminate: killed=%d err=%v", killed, err)
@@ -455,6 +467,13 @@ SELECT count(*) FROM (
 		time.Sleep(50 * time.Millisecond)
 	}
 	unlock() // must not panic or hang on the dead connection
+	// The bystander database's session must not have been terminated.
+	if l, ok, err := bystander.TryAdvisoryLock(ctx, "src"); err != nil || ok {
+		if ok {
+			l()
+		}
+		t.Fatalf("bystander lock lost: ok=%v err=%v, want still held", ok, err)
+	}
 }
 
 func TestAdvisoryLockErrorIsNotHeld(t *testing.T) {

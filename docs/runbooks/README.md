@@ -13,20 +13,19 @@ created by the task that introduces the behaviour.
 | [factory-usage-ledger.md](factory-usage-ledger.md) | record or read per-task token usage; ledger errors |
 | [local-development.md](local-development.md) | build, test, start/stop the test database; Postgres-as-root, TMPDIR, go.mod bump, CI_REQUIRE_DB |
 | [database-migrations.md](database-migrations.md) | `importer migrate` up/down/version, safe apply, `Dirty database version` recovery, psql schema inspection |
+| [import-failures.md](import-failures.md) | an import run `failed`, `aborted` (max_error_ratio), `already running`, was cancelled, or is stuck `running`; reading `import_runs` / `import_errors`; hand-closing an abandoned run |
 | [mapping-validation-errors.md](mapping-validation-errors.md) | `importer mapping validate` prints issues or exits 1/2; every validation code with fix; runtime field errors (MISSING_REQUIRED, TYPE_MISMATCH, PARSE_FAILED, VALIDATION_FAILED) |
 
 ## Seeds for later runbooks
 
 Facts from task logs, not yet verified as operator procedures. The owning task confirms them by running them.
 
-- Task 003, owned by 008/009: `store.TryAdvisoryLock` returns `err != nil` when the attempt itself fails (database down,
-  connection error) and `ok=false, err=nil` when another run holds the lock. Only the second means "already running".
-- Task 003, owned by 008/009: `UpsertRaw` counts Inserted, Updated and Unchanged. Unchanged rows keep their payload but get
+- Task 003, owned by 009: `UpsertRaw` counts Inserted, Updated and Unchanged. Unchanged rows keep their payload but get
   `last_run_id` set. Duplicate keys in one batch count once (last wins).
 - Task 003, owned by 008: numbers are canonicalised as exact plain decimals. Expansions above 20000 digits are rejected.
-  Postgres jsonb can reject huge values with "value overflows numeric format". A NUL byte in a string fails the whole batch.
-  See the 003 log and `docs/data-model.md`.
+  Postgres jsonb can reject huge values with "value overflows numeric format" (not reproduced; the NUL-byte half of this seed is
+  covered in import-failures.md).
 
 Planned (created by the tasks in `factory/tasks/`):
-import-failures, add-a-source, run-the-grpc-server, demo-and-smoke-test, source-layout-changed, reparse-and-file-retention,
+add-a-source, run-the-grpc-server, demo-and-smoke-test, source-layout-changed, reparse-and-file-retention,
 source-url-not-found, uk-hpi-monthly-update, ashe-annual-release.

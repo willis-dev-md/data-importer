@@ -94,6 +94,33 @@ recomputes `next_run_at` immediately. A source can be paused with `enabled: fals
 Parse-level failures (malformed CSV row, non-JSON response) are written to `import_errors`; they never abort the
 whole run unless `max_error_ratio` is exceeded.
 
+#### As implemented (task 008, `internal/importer`)
+`importer.Run(ctx, Deps{Store, Adapters}, sourceID, Options{Trigger, DryRun, BatchSize})` returns a `RunResult`
+(`RunID`, `Status`, counts, `Total`, `Shape`, `SourceMeta`, `Error`, `DryRun`). `Adapters` is keyed by source kind.
+`BatchSize` defaults to 500 records per `UpsertRaw` call; `Trigger` is `manual` or `schedule`.
+- **Lock:** a real run first takes the per-source advisory lock. `ErrAlreadyRunning` is returned (and no run row is
+  created) only when the lock is held elsewhere; an error from the lock attempt itself fails the call with that error.
+  `DryRun` takes no lock, creates no run row (`RunID` 0) and writes nothing; only `Total`, `Failed`, `Shape` and
+  `SourceMeta` are filled.
+- **Statuses:** `running` -> `succeeded`, `failed` or `aborted`. `unchanged_file` is reserved for change detection (task 014).
+- **Counts:** `inserted`, `updated`, `unchanged` from `UpsertRaw`; `failed` counts rows that became `import_errors`.
+- **Row errors:** adapter `RowError`s, records with an empty natural key, and records whose strings (values or keys)
+  contain a NUL byte (`\u0000`, not storable as jsonb) are written to `import_errors` and counted in `failed`; the
+  rest of the batch is still written.
+- **`max_error_ratio`:** after the stream ends, `failed/total > ratio` ends the run `aborted`. Equal is fine; ratio 0 means
+  any error aborts; `total` 0 never aborts. Batches already committed stay in `raw_records`, tagged with the run id.
+- **Shape and metadata:** `shape` is per top-level field the observed value types with counts, e.g.
+  `{"value":{"string":642}}`; fields starting with `_` are excluded. `source_meta` is the adapter's preamble metadata.
+- **Failures:** an adapter open or read error ends the run `failed` (rows parsed before it are kept). Context
+  cancellation ends it `failed` with a `cancelled:` error; the run row is closed with a detached 10 s context and the
+  lock is released. A panic in the adapter closes the run as `failed` with the text `panic: ...`, releases the lock,
+  then re-panics.
+- **Return value:** for `failed` and `aborted` runs `Run` returns the filled `RunResult` **and** a non-nil error
+  (`aborted` wraps `importer.ErrAborted`); check `RunResult.Status`.
+- **Source config:** `ConfigJSON` / `ParseConfigJSON` convert a validated source config to and from the JSON in
+  `sources.config`. It holds env var names only, never secrets.
+- **Known limitation:** a hard kill or OOM leaves the run in `running`; an abandoned-run sweep is planned (task 009).
+
 ### Read
 1. Client calls `ListRecords(source, filter, page)`.
 2. Server loads the active mapping version for the source (cached).
@@ -158,7 +185,7 @@ Read-time mapping and JSONB filtering are fine for moderate volume. Escape hatch
 
 ## 9. Failure handling
 
-- Runs are resumable per chunk; a crashed run is marked `failed` by a startup reaper.
+- Runs are resumable per chunk; a crashed run is marked `failed` by a startup reaper (planned, task 009; until then a hard-killed run stays `running`).
 - Upserts are idempotent, so retries are safe.
 - API sources: retry with exponential backoff and jitter, honour `Retry-After`, per-source rate limit.
 - `max_error_ratio` aborts before committing a mostly-bad file (chunks already committed are tagged with
