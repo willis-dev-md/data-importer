@@ -28,6 +28,9 @@ Properties that shape the importer:
   history (open question 3) would record revisions.
 - Quote style: every field quoted; "Important notes" line has an unquoted empty value.
 
+Verified on the fixture (task 005): 8 preamble keys, 642 records (37 + 151 + 454), 0 row errors, first key
+`["L55O","1989"]`, last key `["L55O","2026 OCT"]`, all keys unique.
+
 ## Config
 
 See [`../examples/ons-l55o.source.yaml`](../examples/ons-l55o.source.yaml) and

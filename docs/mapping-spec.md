@@ -47,8 +47,8 @@ max_error_ratio: 0.05
 #### Implemented behaviour (task 004)
 
 - **Strict config:** YAML is decoded strictly. Unknown keys are errors and validation errors name the field path
-  (e.g. `csv.delimiter`). Only `kind: csv` validates today. `csv.preamble` is rejected as an unknown key until task 005,
-  so [examples/ons-l55o.source.yaml](examples/ons-l55o.source.yaml) does not load yet.
+  (e.g. `csv.delimiter`). Only `kind: csv` validates today.
+  [examples/ons-l55o.source.yaml](examples/ons-l55o.source.yaml) loads and parses the fixture (task 005).
 - **Options:** `delimiter` is one character (`tab` or `\t` for a tab). `encoding` is `utf-8` (default, BOM stripped),
   `windows-1252`, `utf-16`/`utf-16le` (BOM honoured, little-endian by default) or `utf-16be`. `natural_key` fields must be columns.
 - **Fetch:** `location` is a local path, `file://` or `https://`; plain `http://` is rejected. Defaults: 256 MB size
@@ -80,6 +80,19 @@ natural_key: ["@meta.CDID", period]   # may mix metadata and row fields
 
 Preamble metadata is stored on `import_runs.source_meta` and copied into each raw payload under `_meta`, so
 mappings can reference it (`from: "@meta.Unit"`) and the data stays self-describing.
+
+Implemented behaviour (task 005):
+- `preamble` takes exactly one of `lines: N` (physical rows, blank lines count) or `until: <regex>` (matched against the raw
+  text of each row; the first matching row is the first row after the preamble), plus `as: metadata`. With `header: true`
+  the header row follows the preamble. A preamble shorter than declared (or an `until` that never matches) fails `Open`.
+- Each preamble row is `key,value`; a missing or empty value is `""`. More than two fields, an empty key, a bad quote or a
+  duplicate key fail `Open`. Metadata is returned by `Stream.Meta()` (nil without a preamble).
+- `natural_key` entries `@meta.<Key>` are mixed with column names; an unknown key fails at open time naming the known keys.
+  `@meta.` needs `csv.preamble`. An empty metadata value gives an empty-key `RowError` per row.
+- Every record's fields also hold `_meta` (map of metadata, empty without a preamble) and `_source` (`{line: n}`, the
+  1-based physical line where the row starts). With `header: false` and `columns`, a row with another field count is a `RowError`.
+- The source config also accepts `enabled` (carried, not interpreted yet).
+- Known limitation: `FuzzCSVReader` does not cover the preamble (verified in `internal/source/csv_test.go`; only header/headerless modes).
 
 ## Source: XLSX workbook
 

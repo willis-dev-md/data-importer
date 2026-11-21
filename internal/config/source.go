@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -32,15 +33,27 @@ type Source struct {
 	MaxErrorRatio   float64   `yaml:"max_error_ratio"`
 	Schedule        *Schedule `yaml:"schedule,omitempty"`
 	ChangeDetection []string  `yaml:"change_detection,omitempty"`
+	Enabled         *bool     `yaml:"enabled,omitempty"`
 }
 
 // CSV holds the options of a csv source.
 type CSV struct {
-	Delimiter string   `yaml:"delimiter,omitempty"` // one character; default ","
-	Header    *bool    `yaml:"header,omitempty"`    // default true
-	Encoding  string   `yaml:"encoding,omitempty"`  // default utf-8
-	Columns   []string `yaml:"columns,omitempty"`
+	Delimiter string    `yaml:"delimiter,omitempty"` // one character; default ","
+	Header    *bool     `yaml:"header,omitempty"`    // default true
+	Encoding  string    `yaml:"encoding,omitempty"`  // default utf-8
+	Columns   []string  `yaml:"columns,omitempty"`
+	Preamble  *Preamble `yaml:"preamble,omitempty"`
 }
+
+// Preamble describes metadata lines above the data. Exactly one of Lines or Until is set.
+type Preamble struct {
+	Lines int    `yaml:"lines,omitempty"` // number of physical-row preamble lines
+	Until string `yaml:"until,omitempty"` // regexp matching the first data row; the preamble ends before it
+	As    string `yaml:"as"`              // must be "metadata"
+}
+
+// MetaPrefix introduces a natural-key reference to preamble metadata, e.g. "@meta.CDID".
+const MetaPrefix = "@meta."
 
 // Schedule is carried through for the scheduler; it is not interpreted here.
 type Schedule struct {
@@ -184,6 +197,33 @@ func (s *Source) validateCSV(bad func(path, format string, args ...any)) {
 			bad(fmt.Sprintf("csv.columns[%d]", i), "duplicate column %q", col)
 		}
 		seen[col] = true
+	}
+	if p := c.Preamble; p != nil {
+		switch {
+		case p.Lines != 0 && p.Until != "":
+			bad("csv.preamble", "set exactly one of lines and until, not both")
+		case p.Lines < 0:
+			bad("csv.preamble.lines", "must be positive, got %d", p.Lines)
+		case p.Lines == 0 && p.Until == "":
+			bad("csv.preamble", "set exactly one of lines and until")
+		}
+		if p.Until != "" {
+			if _, err := regexp.Compile(p.Until); err != nil {
+				bad("csv.preamble.until", "invalid regular expression: %v", err)
+			}
+		}
+		if p.As != "metadata" {
+			bad("csv.preamble.as", "must be metadata, got %q", p.As)
+		}
+	}
+	for i, k := range s.NaturalKey {
+		if strings.HasPrefix(k, MetaPrefix) {
+			if strings.TrimSpace(k[len(MetaPrefix):]) == "" {
+				bad(fmt.Sprintf("natural_key[%d]", i), "%q names no metadata key", k)
+			} else if c.Preamble == nil {
+				bad(fmt.Sprintf("natural_key[%d]", i), "%q needs csv.preamble", k)
+			}
+		}
 	}
 	if len(c.Columns) > 0 {
 		for i, k := range s.NaturalKey {

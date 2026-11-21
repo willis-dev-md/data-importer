@@ -31,5 +31,9 @@ docs/mapping-spec.md (preamble / headerless / @meta key); docs/sources/ons-l55o.
 none: library-level; the ONS source failure modes are documented in the task 012 smoke-test runbook
 
 ## Status
-in-progress
+validated
 ## Log
+- Round 1: `Stream` gained `Meta()`. Preamble rows read via the existing scanner; `until` reads one row ahead and pushes it back.
+- Decisions: blank preamble lines count toward `lines`; duplicate preamble keys and >2 fields are open errors; `_meta` is always set (empty map without preamble); `_source.line` is int64; `@meta.` requires `csv.preamble`; added `enabled` to `config.Source` because the ONS example uses it.
+- 2026-11-21 validator r1: PASS (independent Python re-derivation of the ONS fixture matched record by record). Runbook `none` accepted, runbook-refiner skipped. documentor verified the worker's docs and added the fuzz limitation; deterministic docs check: PASS.
+- Decisions: blank preamble lines count toward `lines`; duplicate preamble keys / >2-field preamble rows fail Open; `_meta` always present; `enabled` parsed but not interpreted. Known limitation: fuzz test does not cover the preamble.

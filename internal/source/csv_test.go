@@ -244,3 +244,119 @@ func FuzzCSVReader(f *testing.F) {
 		}
 	})
 }
+
+func onsConfig(t *testing.T) *config.Source {
+	t.Helper()
+	cfg, err := config.LoadSource(filepath.Join("..", "..", "docs", "examples", "ons-l55o.source.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Location = filepath.Join("..", "..", "testdata", "ons", "l55o.csv")
+	return cfg
+}
+
+func TestONSGolden(t *testing.T) {
+	s, err := NewCSV(FetchOptions{}).Open(context.Background(), onsConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	meta := s.Meta()
+	if len(meta) != 8 || meta["CDID"] != "L55O" || meta["Unit"] != "%" || meta["Release date"] != "18-11-2026" || meta["Important notes"] != "" {
+		t.Errorf("meta = %v", meta)
+	}
+	recs, errs := drain(t, s)
+	if len(recs) != 642 || len(errs) != 0 {
+		t.Fatalf("records=%d errors=%d, want 642/0", len(recs), len(errs))
+	}
+	if recs[0].NaturalKey != `["L55O","1989"]` || recs[0].Fields["period"] != "1989" || recs[0].Fields["value"] != "5.7" {
+		t.Errorf("first = %+v", recs[0])
+	}
+	if recs[0].Position != 9 {
+		t.Errorf("first position = %d", recs[0].Position)
+	}
+	if src, _ := recs[0].Fields["_source"].(map[string]any); src["line"] != int64(9) {
+		t.Errorf("_source = %v", recs[0].Fields["_source"])
+	}
+	if m, _ := recs[0].Fields["_meta"].(map[string]string); m["CDID"] != "L55O" {
+		t.Errorf("_meta = %v", recs[0].Fields["_meta"])
+	}
+	if last := recs[len(recs)-1]; last.NaturalKey != `["L55O","2026 OCT"]` {
+		t.Errorf("last key = %s", last.NaturalKey)
+	}
+	seen := map[string]bool{}
+	for _, r := range recs {
+		if seen[r.NaturalKey] {
+			t.Fatalf("duplicate key %s", r.NaturalKey)
+		}
+		seen[r.NaturalKey] = true
+	}
+}
+
+func openString(t *testing.T, data string, c config.CSV, key []string) (Stream, error) {
+	t.Helper()
+	return NewCSVReader(context.Background(), strings.NewReader(data), c, key)
+}
+
+func TestPreamble(t *testing.T) {
+	cols := []string{"a", "b"}
+	tests := []struct {
+		name, data string
+		pre        config.Preamble
+		header     bool
+		key        []string
+		wantErr    string
+		wantRecs   int
+		wantErrs   int
+		wantKey0   string
+	}{
+		{"lines", "k,v\nx,\n1,2\n3,4\n", config.Preamble{Lines: 2, As: "metadata"}, false, []string{"@meta.k", "a"}, "", 2, 0, `["v","1"]`},
+		{"until", "k,v\nx\n\"1\",2\n3,4\n", config.Preamble{Until: `^"?\d`, As: "metadata"}, false, []string{"@meta.k", "a"}, "", 2, 0, `["v","1"]`},
+		{"until with header", "k,v\nh1,h2\n1,2\n", config.Preamble{Until: `^h1`, As: "metadata"}, true, []string{"h1"}, "", 1, 0, `["1"]`},
+		{"lines too many", "k,v\n1,2\n", config.Preamble{Lines: 5, As: "metadata"}, false, []string{"a"}, "expected 5 lines, file has only 2", 0, 0, ""},
+		{"until never matches", "k,v\n", config.Preamble{Until: `zzz`, As: "metadata"}, false, []string{"a"}, "no line matches", 0, 0, ""},
+		{"unknown meta key", "k,v\n1,2\n", config.Preamble{Lines: 1, As: "metadata"}, false, []string{"@meta.nope"}, "unknown preamble key \"nope\"", 0, 0, ""},
+		{"too many fields", "k,v,w\n1,2\n", config.Preamble{Lines: 1, As: "metadata"}, false, []string{"a"}, "expected key,value", 0, 0, ""},
+		{"duplicate key", "k,v\nk,w\n1,2\n", config.Preamble{Lines: 2, As: "metadata"}, false, []string{"a"}, "duplicate key", 0, 0, ""},
+		{"wrong column count", "k,v\n1,2\n3\n4,5,6\n7,8\n", config.Preamble{Lines: 1, As: "metadata"}, false, []string{"a"}, "", 2, 2, `["1"]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := config.CSV{Header: boolp(tt.header), Preamble: &tt.pre}
+			if !tt.header {
+				c.Columns = cols
+			}
+			s, err := openString(t, tt.data, c, tt.key)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			recs, errs := drain(t, s)
+			if len(recs) != tt.wantRecs || len(errs) != tt.wantErrs {
+				t.Fatalf("records=%d errors=%d", len(recs), len(errs))
+			}
+			if recs[0].NaturalKey != tt.wantKey0 {
+				t.Errorf("key0 = %s, want %s", recs[0].NaturalKey, tt.wantKey0)
+			}
+		})
+	}
+}
+
+func TestHeaderlessWithoutPreambleHasNoMeta(t *testing.T) {
+	s, err := openString(t, "1,2\n", config.CSV{Header: boolp(false), Columns: []string{"a", "b"}}, []string{"a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Meta() != nil {
+		t.Errorf("meta = %v", s.Meta())
+	}
+	recs, _ := drain(t, s)
+	if m, ok := recs[0].Fields["_meta"].(map[string]string); !ok || len(m) != 0 {
+		t.Errorf("_meta = %v", recs[0].Fields["_meta"])
+	}
+}

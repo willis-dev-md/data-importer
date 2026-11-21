@@ -30,5 +30,5 @@ docs/mapping-spec.md (validation rules as implemented); docs/design.md section 7
 docs/runbooks/mapping-validation-errors.md (each issue code: meaning and fix)
 
 ## Status
-pending
+in-progress
 ## Log

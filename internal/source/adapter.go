@@ -32,6 +32,8 @@ type Stream interface {
 	Next() (Item, bool)
 	// Err returns the fatal error that ended the stream, or nil after a clean end.
 	Err() error
+	// Meta returns the preamble metadata (key to value), available after Open; nil without a preamble.
+	Meta() map[string]string
 	Close() error
 }
 

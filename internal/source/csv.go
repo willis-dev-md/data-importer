@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -70,6 +72,15 @@ type csvStream struct {
 	first  bool  // nothing consumed yet (BOM stripping)
 	err    error
 	done   bool
+	meta   map[string]string
+	pushed *rawRec // a row read ahead (end of an `until` preamble), returned by the next readRecord
+}
+
+type rawRec struct {
+	raw    string
+	pos    int64
+	fields []string
+	bad    string
 }
 
 func decoderFor(r io.Reader, enc string) (io.Reader, error) {
@@ -105,6 +116,11 @@ func newCSVStream(ctx context.Context, r io.Reader, closer io.Closer, opts confi
 	if len(opts.Columns) > 0 {
 		s.names = append([]string(nil), opts.Columns...)
 	}
+	if opts.Preamble != nil {
+		if err := s.readPreamble(opts.Preamble); err != nil {
+			return nil, err
+		}
+	}
 	if opts.HasHeader() {
 		raw, pos, fields, bad, err := s.readRecord()
 		if err != nil {
@@ -138,12 +154,87 @@ func newCSVStream(ctx context.Context, r io.Reader, closer io.Closer, opts confi
 	return s, nil
 }
 
+// readPreamble consumes the metadata preamble into s.meta.
+func (s *csvStream) readPreamble(p *config.Preamble) error {
+	s.meta = map[string]string{}
+	var re *regexp.Regexp
+	if p.Until != "" {
+		var err error
+		if re, err = regexp.Compile(p.Until); err != nil {
+			return fmt.Errorf("csv.preamble.until: %w", err)
+		}
+	}
+	for n := 0; re != nil || n < p.Lines; n++ {
+		raw, pos, fields, bad, err := s.readRecord()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				if re != nil {
+					return fmt.Errorf("csv preamble: no line matches until %q before the end of the file", p.Until)
+				}
+				return fmt.Errorf("csv preamble: expected %d lines, file has only %d", p.Lines, n)
+			}
+			return fmt.Errorf("csv preamble: %w", err)
+		}
+		if re != nil && re.MatchString(raw) {
+			s.pushed = &rawRec{raw, pos, fields, bad}
+			break
+		}
+		if raw == "" && len(fields) == 1 && fields[0] == "" && bad == "" {
+			continue // blank line
+		}
+		if bad != "" {
+			return fmt.Errorf("csv preamble (line %d): %s: %q", pos, bad, truncate(raw))
+		}
+		if len(fields) > 2 {
+			return fmt.Errorf("csv preamble (line %d): expected key,value, got %d fields: %q", pos, len(fields), truncate(raw))
+		}
+		key := strings.TrimSpace(fields[0])
+		if key == "" {
+			return fmt.Errorf("csv preamble (line %d): empty key: %q", pos, truncate(raw))
+		}
+		if _, dup := s.meta[key]; dup {
+			return fmt.Errorf("csv preamble (line %d): duplicate key %q", pos, key)
+		}
+		val := ""
+		if len(fields) == 2 {
+			val = fields[1]
+		}
+		s.meta[key] = val
+	}
+	for _, k := range s.nkey {
+		if m, ok := strings.CutPrefix(k, config.MetaPrefix); ok {
+			if _, ok := s.meta[m]; !ok {
+				return fmt.Errorf("natural_key: %q references unknown preamble key %q (keys: %s)", k, m, strings.Join(sortedKeys(s.meta), ", "))
+			}
+		}
+	}
+	return nil
+}
+
+func sortedKeys(m map[string]string) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	return ks
+}
+
+// Meta implements Stream.
+func (s *csvStream) Meta() map[string]string { return s.meta }
+
 func (s *csvStream) checkKey() error {
 	have := map[string]bool{}
 	for _, n := range s.names {
 		have[n] = true
 	}
 	for _, k := range s.nkey {
+		if strings.HasPrefix(k, config.MetaPrefix) {
+			if s.meta == nil {
+				return fmt.Errorf("natural_key: %q needs csv.preamble", k)
+			}
+			continue
+		}
 		if !have[k] {
 			return fmt.Errorf("natural_key: field %q is not a column (columns: %s)", k, strings.Join(s.names, ", "))
 		}
@@ -192,12 +283,23 @@ func (s *csvStream) Next() (Item, bool) {
 		}
 		parts := make([]string, len(s.nkey))
 		for i, k := range s.nkey {
-			v, _ := m[k].(string)
+			var v string
+			if mk, ok := strings.CutPrefix(k, config.MetaPrefix); ok {
+				v = s.meta[mk]
+			} else {
+				v, _ = m[k].(string)
+			}
 			if strings.TrimSpace(v) == "" {
 				return Item{Error: &RowError{Position: pos, Raw: raw, Reason: fmt.Sprintf("natural key field %q is empty", k)}}, true
 			}
 			parts[i] = v
 		}
+		meta := s.meta
+		if meta == nil {
+			meta = map[string]string{}
+		}
+		m["_meta"] = meta
+		m["_source"] = map[string]any{"line": pos}
 		return Item{Record: &Record{Position: pos, Fields: m, NaturalKey: record.Key(parts...)}}, true
 	}
 }
@@ -237,6 +339,10 @@ const (
 // readRecord reads one logical row. bad is non-empty for a malformed row (fields are then unreliable).
 // It returns io.EOF when no rows remain.
 func (s *csvStream) readRecord() (raw string, pos int64, fields []string, bad string, err error) {
+	if p := s.pushed; p != nil {
+		s.pushed = nil
+		return p.raw, p.pos, p.fields, p.bad, nil
+	}
 	var rawB strings.Builder
 	var cur strings.Builder
 	state := stStart

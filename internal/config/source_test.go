@@ -17,6 +17,16 @@ func TestLoadExample(t *testing.T) {
 	}
 }
 
+func TestLoadONSExample(t *testing.T) {
+	s, err := LoadSource(filepath.Join("..", "..", "docs", "examples", "ons-l55o.source.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.CSV.HasHeader() || s.CSV.Preamble == nil || s.CSV.Preamble.Lines != 8 || s.CSV.Preamble.As != "metadata" {
+		t.Errorf("unexpected: %+v", s.CSV)
+	}
+}
+
 func TestParseSource(t *testing.T) {
 	const ok = "id: a\nkind: csv\nlocation: /x.csv\nnatural_key: [id]\n"
 	tests := []struct {
@@ -42,6 +52,16 @@ func TestParseSource(t *testing.T) {
 		{"bad encoding", ok + "csv: {encoding: koi8}\n", "csv.encoding: unsupported"},
 		{"empty column", ok + "csv: {columns: [id, '']}\n", "csv.columns[1]: must not be empty"},
 		{"duplicate column", ok + "csv: {columns: [id, id]}\n", "csv.columns[1]: duplicate"},
+		{"preamble lines", ok + "csv: {preamble: {lines: 2, as: metadata}}\n", ""},
+		{"preamble until", ok + "csv: {preamble: {until: '^\\\\d', as: metadata}}\n", ""},
+		{"preamble both", ok + "csv: {preamble: {lines: 2, until: x, as: metadata}}\n", "csv.preamble: set exactly one"},
+		{"preamble neither", ok + "csv: {preamble: {as: metadata}}\n", "csv.preamble: set exactly one"},
+		{"preamble negative", ok + "csv: {preamble: {lines: -1, as: metadata}}\n", "csv.preamble.lines: must be positive"},
+		{"preamble bad regexp", ok + "csv: {preamble: {until: '(', as: metadata}}\n", "csv.preamble.until: invalid"},
+		{"preamble bad as", ok + "csv: {preamble: {lines: 1, as: ctx}}\n", "csv.preamble.as: must be metadata"},
+		{"meta key ok", "id: a\nkind: csv\nlocation: /x\nnatural_key: ['@meta.K', id]\ncsv: {columns: [id], preamble: {lines: 1, as: metadata}}\n", ""},
+		{"meta key without preamble", "id: a\nkind: csv\nlocation: /x\nnatural_key: ['@meta.K']\n", "needs csv.preamble"},
+		{"meta key empty", "id: a\nkind: csv\nlocation: /x\nnatural_key: ['@meta.']\ncsv: {preamble: {lines: 1, as: metadata}}\n", "names no metadata key"},
 		{"key not in columns", ok + "csv: {columns: [a, b]}\n", "natural_key[0]: \"id\" is not in csv.columns"},
 	}
 	for _, tt := range tests {
