@@ -53,3 +53,9 @@ XLSX adapter (task 013), known limits that the adapter does not detect:
 - Two guards (a row without `r` beyond 1,048,576, and a cell without `r` beyond the column limit) have no test that fails when they are removed.
 - The vulnerability scan (`govulncheck`) was not run (not available offline); run it before release.
 - The LibreOffice prefixed-namespace test files were hand-built, not produced by LibreOffice.
+
+## Resume here (session stopped 2026-11-21)
+- **Validated and pushed:** tasks 001 to 013 (M0 to M5, CSV/ONS, mapping, importer, CLI, gRPC read API, e2e demo, XLSX adapter with the Bank of England fixture end to end).
+- **In progress, NOT validated:** task 018 (duplicate natural keys within a run). Code and tests exist (round 2 done: real run and dry run detect duplicates; `scripts/validate.sh` passed for the worker), committed as a work-in-progress commit. Next steps: validator (phase validate), documentor, runbook-refiner, `python3 scripts/factory-docs-check.py check 018`, then mark it validated. The first validator pass for round 2 was started but stopped when the session ended: re-run it.
+- **Next tasks:** 019 (lock connections must not starve the pool: 4 concurrent runs deadlocked), then 014 (file retention, change detection, reparse), 015 (zip archives and URL resolution), 016 (UK HPI), 017 (ASHE Table 20). Specs are in `factory/tasks/`.
+- **Housekeeping for you:** fill `factory/metrics/prices.json` (cost shows n/a); decide whether to keep the docs-role budget (documentor 20, runbook-refiner 25 tool calls); the Hardening backlog above lists known limits.

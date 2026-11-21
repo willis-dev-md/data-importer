@@ -2,12 +2,14 @@ package importer
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 
@@ -16,6 +18,15 @@ import (
 	"github.com/willis-dev-md/data-importer/internal/source"
 	"github.com/willis-dev-md/data-importer/internal/store"
 )
+
+// MaxDuplicateSamples is how many duplicate-key errors RunResult keeps.
+const MaxDuplicateSamples = 10
+
+// MaxDryRunKeys bounds duplicate detection in a dry run, which has no database
+// and keeps one 128-bit key hash plus the first position per distinct key: about
+// 50 bytes per key, so roughly 0.5 GB at the limit. Beyond it the dry run fails
+// with a clear error instead of growing without bound. (A variable so tests can lower it.)
+var MaxDryRunKeys = 10_000_000
 
 // DefaultBatchSize is the number of records per UpsertRaw call.
 const DefaultBatchSize = 500
@@ -39,7 +50,7 @@ type Store interface {
 	GetSource(ctx context.Context, id string) (store.Source, error)
 	CreateRun(ctx context.Context, sourceID, trigger string) (int64, error)
 	FinishRun(ctx context.Context, runID int64, status string, counts store.RunCounts, shape, sourceMeta json.RawMessage, errText string) error
-	UpsertRaw(ctx context.Context, runID int64, sourceID string, recs []record.Record) (store.Counts, error)
+	UpsertRawUnique(ctx context.Context, runID int64, sourceID string, recs []record.Record) (store.Counts, []store.Dup, error)
 	RecordErrors(ctx context.Context, runID int64, errs []store.RowError) error
 	TryAdvisoryLock(ctx context.Context, sourceID string) (unlock func(), ok bool, err error)
 }
@@ -63,11 +74,16 @@ type RunResult struct {
 	RunID  int64
 	Status string
 	store.RunCounts
-	Total      int // rows seen: records plus failed rows
-	Shape      json.RawMessage
-	SourceMeta json.RawMessage
-	Error      string
-	DryRun     bool
+	Total int // rows seen: records plus failed rows
+	// Duplicates is how many records were rejected as duplicate natural keys (also
+	// counted in Failed); DuplicateSamples holds the first MaxDuplicateSamples of
+	// them (position, key, reason), in a real run and in a dry run.
+	Duplicates       int
+	DuplicateSamples []store.RowError
+	Shape            json.RawMessage
+	SourceMeta       json.RawMessage
+	Error            string
+	DryRun           bool
 }
 
 // ConfigJSON converts a source config into the JSON stored in sources.config.
@@ -94,6 +110,16 @@ func ParseConfigJSON(b []byte) (*config.Source, error) { return config.ParseSour
 // when another run holds the source lock. For any run that ends failed or
 // aborted the RunResult is filled and a non-nil error is returned (aborted
 // wraps ErrAborted); check RunResult.Status.
+//
+// Duplicate natural keys: within one run the first record for a key wins; a later
+// record with the same key (same batch or a later batch) is not merged but
+// recorded as a row error "duplicate natural key (first seen at <position>)"
+// (position "unknown" when the first record was in an earlier batch), counted in
+// Failed and in max_error_ratio. Keys are compared byte for byte (case,
+// whitespace and unicode forms are NOT normalised). Detection is done by the
+// store from raw_records.last_run_id, so the importer keeps only one batch in
+// memory. A dry run has no database and detects duplicates with a set of 128-bit
+// key hashes (at most MaxDryRunKeys distinct keys, then the run fails).
 //
 // Chunks committed before a failure or an abort stay in raw_records tagged with
 // the run id (they are not rolled back).
@@ -196,11 +222,12 @@ func execute(ctx context.Context, st Store, adapter source.Adapter, cfg *config.
 
 	var (
 		batch []record.Record
+		pos   []string // pos[i] is the source position of batch[i]
 		bad   []store.RowError
 	)
 	flush := func() error {
 		if opts.DryRun {
-			batch, bad = batch[:0], bad[:0]
+			batch, pos, bad = batch[:0], pos[:0], bad[:0]
 			return nil
 		}
 		if len(bad) > 0 {
@@ -210,16 +237,38 @@ func execute(ctx context.Context, st Store, adapter source.Adapter, cfg *config.
 			bad = bad[:0]
 		}
 		if len(batch) > 0 {
-			c, err := st.UpsertRaw(ctx, res.RunID, sourceID, batch)
+			c, dups, err := st.UpsertRawUnique(ctx, res.RunID, sourceID, batch)
 			if err != nil {
 				return err
 			}
 			res.Counts = res.Counts.Add(c)
-			batch = batch[:0]
+			// The first record of a key wins; a later one in this run is an error,
+			// never a merge. The batch is the only state kept (bounded by batchSize).
+			derrs := make([]store.RowError, 0, len(dups))
+			for _, d := range dups {
+				first := "unknown" // written by an earlier batch: positions are not kept
+				if d.First >= 0 {
+					first = pos[d.First]
+				}
+				derrs = append(derrs, store.RowError{
+					Position: pos[d.Index], Raw: batch[d.Index].Key,
+					Reason: fmt.Sprintf("duplicate natural key (first seen at %s)", first),
+				})
+			}
+			res.Failed += len(derrs)
+			res.addDuplicates(derrs)
+			batch, pos = batch[:0], pos[:0]
+			if err := st.RecordErrors(ctx, res.RunID, derrs); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
 	finish := func() { res.Shape = shape.JSON() }
+	var seen map[[16]byte]int64 // dry run only: key hash -> position of the first record
+	if opts.DryRun {
+		seen = make(map[[16]byte]int64)
+	}
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -242,7 +291,26 @@ func execute(ctx context.Context, st Store, adapter source.Adapter, cfg *config.
 				break
 			}
 			shape.Add(it.Record.Fields)
+			if opts.DryRun {
+				h := sha256.Sum256([]byte(it.Record.NaturalKey))
+				k := [16]byte(h[:16])
+				if first, dup := seen[k]; dup {
+					res.Failed++
+					res.addDuplicates([]store.RowError{{
+						Position: fmt.Sprint(it.Record.Position), Raw: it.Record.NaturalKey,
+						Reason: fmt.Sprintf("duplicate natural key (first seen at %d)", first),
+					}})
+					break
+				}
+				if len(seen) >= MaxDryRunKeys {
+					finish()
+					return fmt.Errorf("dry run: more than %d distinct natural keys; duplicate detection is bounded, use a real run (it detects duplicates in the database)", MaxDryRunKeys)
+				}
+				seen[k] = it.Record.Position
+				break
+			}
 			batch = append(batch, record.Record{Key: it.Record.NaturalKey, Payload: it.Record.Fields})
+			pos = append(pos, fmt.Sprint(it.Record.Position))
 		default:
 			res.Failed++
 			bad = append(bad, store.RowError{Reason: "adapter returned an empty item"})
@@ -269,6 +337,16 @@ func execute(ctx context.Context, st Store, adapter source.Adapter, cfg *config.
 	return nil
 }
 
+func (r *RunResult) addDuplicates(errs []store.RowError) {
+	r.Duplicates += len(errs)
+	for _, e := range errs {
+		if len(r.DuplicateSamples) >= MaxDuplicateSamples {
+			return
+		}
+		r.DuplicateSamples = append(r.DuplicateSamples, e)
+	}
+}
+
 // exceeds reports failed/total > ratio. Equal is fine; ratio 0 means any
 // failure exceeds it. The division is correctly rounded, so 1/100 equals 0.01.
 func exceeds(failed, total int, ratio float64) bool {
@@ -284,6 +362,9 @@ func exceeds(failed, total int, ratio float64) bool {
 func checkRecord(r *source.Record) string {
 	if r.NaturalKey == "" {
 		return "empty natural key"
+	}
+	if !utf8.ValidString(r.NaturalKey) || strings.ContainsRune(r.NaturalKey, 0) {
+		return "natural key contains a NUL byte or invalid UTF-8; not storable"
 	}
 	if path := findNUL("", r.Fields); path != "" {
 		return fmt.Sprintf("string contains a NUL byte (\\u0000) at %s; not storable as jsonb", path)

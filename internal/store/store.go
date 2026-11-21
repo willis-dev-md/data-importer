@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -226,6 +227,9 @@ FROM up LEFT JOIN old USING (natural_key)`
 // cleared. If a key occurs more than once in recs the last occurrence wins and
 // the key is counted once. A record with an empty key or a payload that cannot
 // be canonicalised makes the whole call fail and nothing is written.
+//
+// UpsertRaw does not know about duplicates across calls: a key already written
+// by the same run is overwritten (the importer uses UpsertRawUnique instead).
 func (s *Store) UpsertRaw(ctx context.Context, runID int64, sourceID string, recs []record.Record) (Counts, error) {
 	if len(recs) == 0 {
 		return Counts{}, nil
@@ -265,6 +269,124 @@ func (s *Store) UpsertRaw(ctx context.Context, runID int64, sourceID string, rec
 		return Counts{}, fmt.Errorf("upsert raw (source %q, run %d, %d records): %w", sourceID, runID, len(recs), err)
 	}
 	return c, nil
+}
+
+// upsertUniqueSQL is upsertSQL minus the rows already written by this run: "fresh"
+// drops every input key whose stored row has last_run_id = $2 (same snapshot as
+// "old", i.e. before this statement). Those keys are returned as the 4th column.
+const upsertUniqueSQL = `
+WITH input AS (
+  SELECT * FROM unnest($3::text[], $4::text[], $5::bytea[]) AS t(natural_key, payload, content_hash)
+), old AS (
+  SELECT natural_key, content_hash, last_run_id FROM raw_records
+  WHERE source_id = $1 AND natural_key = ANY($3::text[])
+), fresh AS (
+  SELECT input.* FROM input
+  WHERE NOT EXISTS (SELECT 1 FROM old WHERE old.natural_key = input.natural_key AND old.last_run_id = $2)
+), up AS (
+  INSERT INTO raw_records (source_id, natural_key, payload, content_hash, first_run_id, last_run_id)
+  SELECT $1, natural_key, payload::jsonb, content_hash, $2, $2 FROM fresh
+  ON CONFLICT (source_id, natural_key) DO UPDATE SET
+    payload      = CASE WHEN raw_records.content_hash = EXCLUDED.content_hash THEN raw_records.payload ELSE EXCLUDED.payload END,
+    imported_at  = CASE WHEN raw_records.content_hash = EXCLUDED.content_hash THEN raw_records.imported_at ELSE now() END,
+    content_hash = EXCLUDED.content_hash,
+    last_run_id  = EXCLUDED.last_run_id,
+    deleted_at   = NULL
+  RETURNING natural_key, content_hash
+)
+SELECT
+  count(*) FILTER (WHERE old.natural_key IS NULL),
+  count(*) FILTER (WHERE old.natural_key IS NOT NULL AND old.content_hash <> up.content_hash),
+  count(*) FILTER (WHERE old.natural_key IS NOT NULL AND old.content_hash = up.content_hash),
+  (SELECT coalesce(array_agg(natural_key), '{}'::text[]) FROM old WHERE last_run_id = $2)
+FROM up LEFT JOIN old USING (natural_key)`
+
+// Dup is a record UpsertRawUnique did not write because its key was already
+// written by the same run. Index is the position in the recs slice.
+type Dup struct {
+	Index int
+	// First is the index in recs of the record that was written for this key in
+	// this call, or -1 when the key was written by an EARLIER call of the same
+	// run (the store does not keep positions, so that record is not known).
+	First int
+}
+
+// UpsertRawUnique is UpsertRaw with the importer's duplicate rule: within one run
+// the FIRST record for a natural key wins and a later one is never merged into it.
+//   - If a key occurs more than once in recs, the first occurrence is written and
+//     each later one is returned as Dup{Index, First: index of the first}.
+//   - If a stored row for the key has last_run_id = runID (written by an earlier
+//     call of the same run, with or without a content change), the stored row is
+//     left untouched, is not counted, and every record with that key in recs is
+//     returned as Dup{Index, First: -1}.
+//
+// Rows last seen by a previous run are inserted/updated/unchanged exactly as in
+// UpsertRaw (a tombstoned row from an earlier run is revived). Written records
+// are counted once; Counts.Inserted+Updated+Unchanged+len(dups) == len(recs).
+// Detection uses the database (last_run_id), so memory is O(len(recs)) per call
+// and nothing is kept between calls. Calls for the same run must not run
+// concurrently (the importer calls it sequentially under the source lock).
+// Validation errors (empty key, uncanonicalisable payload) fail the whole call.
+func (s *Store) UpsertRawUnique(ctx context.Context, runID int64, sourceID string, recs []record.Record) (Counts, []Dup, error) {
+	if len(recs) == 0 {
+		return Counts{}, nil, nil
+	}
+	first := make(map[string]int, len(recs)) // key -> index of first occurrence in recs
+	var dups []Dup
+	keys := make([]string, 0, len(recs))
+	payloads := make([]string, 0, len(recs))
+	hashes := make([][]byte, 0, len(recs))
+	for i, r := range recs {
+		if r.Key == "" {
+			return Counts{}, nil, errors.New("upsert raw: record with empty key")
+		}
+		canon, err := record.Canonical(r.Payload)
+		if err != nil {
+			return Counts{}, nil, fmt.Errorf("upsert raw: record %q: %w", r.Key, err)
+		}
+		h, err := record.Sum(r.Payload)
+		if err != nil {
+			return Counts{}, nil, fmt.Errorf("upsert raw: record %q: %w", r.Key, err)
+		}
+		if f, dup := first[r.Key]; dup {
+			dups = append(dups, Dup{Index: i, First: f})
+			continue
+		}
+		first[r.Key] = i
+		keys = append(keys, r.Key)
+		payloads = append(payloads, string(canon))
+		hashes = append(hashes, h)
+	}
+
+	var c Counts
+	var touched []string
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, upsertUniqueSQL, sourceID, runID, keys, payloads, hashes).
+			Scan(&c.Inserted, &c.Updated, &c.Unchanged, &touched)
+	})
+	if err != nil {
+		return Counts{}, nil, fmt.Errorf("upsert raw (source %q, run %d, %d records): %w", sourceID, runID, len(recs), err)
+	}
+	if len(touched) > 0 {
+		earlier := make(map[string]bool, len(touched))
+		for _, k := range touched {
+			earlier[k] = true
+		}
+		// Records whose key was written by an earlier call are all duplicates of
+		// a record we do not know: rewrite the in-call ones too.
+		for i := range dups {
+			if earlier[recs[dups[i].Index].Key] {
+				dups[i].First = -1
+			}
+		}
+		for k := range earlier {
+			if f, ok := first[k]; ok {
+				dups = append(dups, Dup{Index: f, First: -1})
+			}
+		}
+	}
+	sort.Slice(dups, func(i, j int) bool { return dups[i].Index < dups[j].Index })
+	return c, dups, nil
 }
 
 // RecordErrors stores bad rows for the run in one statement. NUL bytes and

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -621,4 +622,57 @@ func replaceComma(s string) string {
 		}
 	}
 	return string(out)
+}
+
+func TestUpsertRawUnique(t *testing.T) {
+	ctx := context.Background()
+	s, _ := setup(t)
+	run1, _ := s.CreateRun(ctx, "src", "manual")
+
+	// Same call: first occurrence wins, later ones are reported with the index of the first.
+	c, dups, err := s.UpsertRawUnique(ctx, run1, "src", []record.Record{rec("a", 1), rec("b", 2), rec("a", 3), rec("a", 4), rec("B", 5)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c != (store.Counts{Inserted: 3}) || !reflect.DeepEqual(dups, []store.Dup{{Index: 2, First: 0}, {Index: 3, First: 0}}) {
+		t.Fatalf("call 1: %+v %+v", c, dups)
+	}
+	if got, _ := s.GetRaw(ctx, "src", "a"); fmt.Sprint(got.Payload["v"]) != "1" {
+		t.Errorf("a = %v, want the first record", got.Payload)
+	}
+
+	// A later call of the same run: rows are left untouched, even if the content differs.
+	before, _ := s.GetRaw(ctx, "src", "b")
+	c, dups, err = s.UpsertRawUnique(ctx, run1, "src", []record.Record{rec("c", 1), rec("a", 9), rec("b", 2), rec("b", 7), rec("c", 2)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []store.Dup{{Index: 1, First: -1}, {Index: 2, First: -1}, {Index: 3, First: -1}, {Index: 4, First: 0}}
+	if c != (store.Counts{Inserted: 1}) || !reflect.DeepEqual(dups, want) {
+		t.Fatalf("call 2: %+v %+v", c, dups)
+	}
+	after, _ := s.GetRaw(ctx, "src", "b")
+	if !reflect.DeepEqual(before, after) {
+		t.Errorf("row touched by a duplicate: %+v -> %+v", before, after)
+	}
+	if got, _ := s.GetRaw(ctx, "src", "a"); fmt.Sprint(got.Payload["v"]) != "1" {
+		t.Errorf("a = %v, want the first record", got.Payload)
+	}
+
+	// The next run is not confused by run 1: update and unchanged.
+	run2, _ := s.CreateRun(ctx, "src", "manual")
+	c, dups, err = s.UpsertRawUnique(ctx, run2, "src", []record.Record{rec("a", 1), rec("b", 20), rec("c", 1)})
+	if err != nil || len(dups) != 0 || c != (store.Counts{Updated: 1, Unchanged: 2}) {
+		t.Fatalf("run 2: %+v %+v %v", c, dups, err)
+	}
+	// Validation failures write nothing.
+	if _, _, err := s.UpsertRawUnique(ctx, run2, "src", []record.Record{rec("z", 1), {Key: ""}}); err == nil {
+		t.Error("empty key accepted")
+	}
+	if _, err := s.GetRaw(ctx, "src", "z"); !errorsIs(err, store.ErrNotFound) {
+		t.Errorf("z written: %v", err)
+	}
+	if c, d, err := s.UpsertRawUnique(ctx, run2, "src", nil); err != nil || len(d) != 0 || c != (store.Counts{}) {
+		t.Errorf("empty = %+v %+v %v", c, d, err)
+	}
 }

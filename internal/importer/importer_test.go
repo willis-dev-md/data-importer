@@ -75,7 +75,14 @@ func newEnv(t *testing.T) env {
 	if _, err := store.Migrate(context.Background(), url, store.Up); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	pool, err := pgxpool.New(context.Background(), url)
+	pcfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Every running import holds one connection for its source lock and needs
+	// another to write: leave room for concurrent runs of different sources.
+	pcfg.MaxConns = 32
+	pool, err := pgxpool.NewWithConfig(context.Background(), pcfg)
 	if err != nil {
 		t.Fatal(err)
 	}
