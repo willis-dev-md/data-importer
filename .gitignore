@@ -3,3 +3,4 @@ bin/
 .env
 *.test
 coverage.*
+factory/.state/
