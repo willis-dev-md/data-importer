@@ -3,11 +3,13 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 
+	"github.com/willis-dev-md/data-importer/internal/mapping"
 	"github.com/willis-dev-md/data-importer/internal/store"
 )
 
@@ -20,7 +22,7 @@ commands:
   migrate   apply database migrations: migrate up|down|version
   serve     run the gRPC server and scheduler (planned)
   run       run one import for a source (planned)
-  mapping   validate and materialize mappings (planned)
+  mapping   mapping validate [--schema canonical-schema.yaml] <file>
   version   print the version
   help      print this help
 `
@@ -40,7 +42,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "migrate":
 		return runMigrate(args[1:], os.Getenv("DATABASE_URL"), stdout, stderr)
-	case "serve", "run", "mapping":
+	case "mapping":
+		return runMapping(args[1:], stdout, stderr)
+	case "serve", "run":
 		fmt.Fprintf(stderr, "importer: %q is not implemented yet\n", args[0])
 		return 1
 	default:
@@ -74,6 +78,50 @@ func runMigrate(args []string, databaseURL string, stdout, stderr io.Writer) int
 		return 1
 	}
 	fmt.Fprintf(stdout, "version %d\n", v)
+	return 0
+}
+
+// runMapping implements `importer mapping validate [--schema file] <file>`.
+// Exit codes: 0 no errors (warnings allowed), 1 validation errors, 2 usage or unreadable file.
+func runMapping(args []string, stdout, stderr io.Writer) int {
+	const usage = "usage: importer mapping validate [--schema canonical-schema.yaml] <file>"
+	if len(args) == 0 || args[0] != "validate" {
+		fmt.Fprintln(stderr, usage)
+		return 2
+	}
+	fs := flag.NewFlagSet("mapping validate", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	schema := fs.String("schema", "canonical-schema.yaml", "canonical schema file")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(stderr, usage)
+		return 2
+	}
+	file := fs.Arg(0)
+	data, err := os.ReadFile(file)
+	if err != nil {
+		fmt.Fprintf(stderr, "importer mapping validate: %v\n", err)
+		return 2
+	}
+	canonical, err := mapping.LoadCanonical(*schema)
+	if err != nil {
+		fmt.Fprintf(stderr, "importer mapping validate: %v\n", err)
+		return 2
+	}
+	m, err := mapping.Parse(data)
+	if err != nil {
+		fmt.Fprintf(stdout, "%s: PARSE_ERROR: %v\n", file, err)
+		return 1
+	}
+	issues := mapping.Validate(m, canonical)
+	for _, i := range issues {
+		fmt.Fprintln(stdout, i)
+	}
+	if mapping.HasErrors(issues) {
+		return 1
+	}
 	return 0
 }
 

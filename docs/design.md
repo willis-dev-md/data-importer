@@ -138,6 +138,11 @@ the ONS, Bank of England, HM Land Registry and ASHE sources) is:
     status         string             provisional | revised | final
     quality_flag   string             publisher marker for suppressed/unreliable values (x, .., :, -)
 
+The schema file is loaded by `mapping.LoadCanonical`. Each field has a `type` (`string int decimal bool date
+timestamp enum map`), optional `required`, `nullable` (`value`) and, for enums, `values`. Mappings are validated against
+it by `importer mapping validate` (rules in [mapping-spec](mapping-spec.md#validation-on-save)); `dimensions` is a map
+and is filled only from the mapping's `dimensions:` block.
+
 Original summary kept for orientation: All four sources so far (ONS
 [CPIH](sources/ons-l55o.md), [Bank Rate](sources/boe-baserate.md), [UK HPI](sources/uk-hpi.md) and
 [ASHE Table 20](sources/ons-ashe-table20.md)) are time-series observations, so one canonical entity serves them.

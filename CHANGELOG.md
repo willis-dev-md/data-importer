@@ -3,6 +3,7 @@
 All notable user-visible changes. Maintained by the `documentor` role. Newest first.
 
 ## Unreleased
+- `importer mapping validate [--schema file] <file>` checks a mapping against the new `canonical-schema.yaml` (observation, v2) and reports `path: code: message` issues (exit 0/1/2); the `acme-csv` and `partner-api` examples were rewritten as observation mappings.
 - CSV metadata preamble (`csv.preamble` with `lines` or `until`), headerless files with named columns, `@meta.<Key>` natural keys, and `_meta`/`_source` in each record; the ONS L55O example now loads and parses its fixture (642 records, 0 errors).
 - CSV source adapter (library, no CLI change): strict source config validation (`internal/config`), fetch from path, `file://` or `https://` with size/time limits and SHA-256, and a row-error-tolerant CSV reader (`internal/source`).
 - Design documentation, source analyses (ONS CPIH, Bank of England base rate, UK HPI, ASHE Table 20), and the software factory with its worker, validator, documentor and runbook-refiner roles.

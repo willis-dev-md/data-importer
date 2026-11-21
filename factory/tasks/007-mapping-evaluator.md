@@ -37,5 +37,5 @@ docs/mapping-spec.md (transforms, period types, FieldError codes, known limitati
 docs/runbooks/mapping-validation-errors.md (add runtime FieldError codes MISSING_REQUIRED, TYPE_MISMATCH, PARSE_FAILED, VALIDATION_FAILED with fixes)
 
 ## Status
-pending
+in-progress
 ## Log

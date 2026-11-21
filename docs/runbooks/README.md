@@ -13,6 +13,7 @@ created by the task that introduces the behaviour.
 | [factory-usage-ledger.md](factory-usage-ledger.md) | record or read per-task token usage; ledger errors |
 | [local-development.md](local-development.md) | build, test, start/stop the test database; Postgres-as-root, TMPDIR, go.mod bump, CI_REQUIRE_DB |
 | [database-migrations.md](database-migrations.md) | `importer migrate` up/down/version, safe apply, `Dirty database version` recovery, psql schema inspection |
+| [mapping-validation-errors.md](mapping-validation-errors.md) | `importer mapping validate` prints issues or exits 1/2; every validation code with fix |
 
 ## Seeds for later runbooks
 
@@ -26,6 +27,9 @@ Facts from task logs, not yet verified as operator procedures. The owning task c
   Postgres jsonb can reject huge values with "value overflows numeric format". A NUL byte in a string fails the whole batch.
   See the 003 log and `docs/data-model.md`.
 
-Planned (created by the tasks in `factory/tasks/`): mapping-validation-errors,
+- Task 007 adds the runtime FieldError codes MISSING_REQUIRED, TYPE_MISMATCH, PARSE_FAILED and VALIDATION_FAILED to
+  `mapping-validation-errors.md`.
+
+Planned (created by the tasks in `factory/tasks/`):
 import-failures, add-a-source, run-the-grpc-server, demo-and-smoke-test, source-layout-changed, reparse-and-file-retention,
 source-url-not-found, uk-hpi-monthly-update, ashe-annual-release.

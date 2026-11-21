@@ -1,7 +1,13 @@
 source: partner-api
 version: 1
 fields:
-  name:  { from: "$.attributes.displayName", required: true }
-  email: { from: "$.attributes.contact.email", transform: lower }
-  date:  { from: "$.attributes.created", type: timestamp }
+  series_id:    { const: partner_signups }
+  measure:      { const: signups }
+  period_type:  { from: "$.attributes.created", type: period, format: "2006-01-02T15:04:05Z07:00", output: period_type }
+  period_start: { from: "$.attributes.created", type: period, format: "2006-01-02T15:04:05Z07:00", output: period_start }
+  period_end:   { from: "$.attributes.created", type: period, format: "2006-01-02T15:04:05Z07:00", output: period_end }
+  value:        { const: 1 }
+dimensions:
+  country:      { from: "$.attributes.country" }
+  display_name: { from: "$.attributes.displayName" }
 extra: keep

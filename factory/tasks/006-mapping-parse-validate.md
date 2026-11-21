@@ -30,5 +30,26 @@ docs/mapping-spec.md (validation rules as implemented); docs/design.md section 7
 docs/runbooks/mapping-validation-errors.md (each issue code: meaning and fix)
 
 ## Status
-in-progress
+validated
 ## Log
+
+### Worker round 1
+- Added `canonical-schema.yaml` (v2), `internal/mapping/{types,parse,canonical,validate}.go`, tests, and `importer mapping validate [--schema file] <file>`.
+- Decisions:
+  - `--schema` defaults to `canonical-schema.yaml` in the working directory (the file is not embeddable from the repo root into `internal/`); an unreadable schema exits 2.
+  - A parse error (strict YAML) is printed as `<file>: PARSE_ERROR: ...` and exits 1.
+  - Issue codes: MISSING_SOURCE, BAD_EXTRA, UNKNOWN_FIELD, DIMENSIONS_AS_FIELD, REQUIRED_NOT_COVERED, UNKNOWN_TYPE, TYPE_MISMATCH, DIMENSION_TYPE,
+    SOURCE_CONFLICT, SOURCE_MISSING, BAD_FROM, CONST_NOT_SCALAR, CONST_NOT_IN_ENUM, UNKNOWN_TRANSFORM, TRANSFORM_ARGS, UNKNOWN_VALIDATOR,
+    VALIDATOR_ARGS, FORMAT_REQUIRED, BAD_REGEX, OUTPUT_NOT_PERIOD, BAD_OUTPUT, OUTPUT_MISMATCH, BAD_TEMPLATE, UNKNOWN_FLAG_FIELD,
+    NULL_MARKERS_WITHOUT_FLAG (warning), BAD_PRECISION.
+  - Extra rules beyond the spec list: `output` must equal the canonical field name (OUTPUT_MISMATCH); `type: period` only feeds period_type/start/end;
+    an enum const must be one of the values; `from` syntax is checked (`$.a.b`, `@ctx.x`, `@meta.x`); transform/validator argument counts;
+    an untyped `const` takes its type from the YAML scalar (so `const: 1` feeds a decimal).
+  - Type compatibility: string<-string; enum<-string; int<-int; decimal<-decimal|int; bool<-bool; date<-date; timestamp<-timestamp|date. A `from` with no `type` is a string, so a decimal field needs `type: decimal`.
+  - Transform/validator args: `name(a,b)`, args may be quoted with `"` or `'` (needed when a regex contains a comma).
+  - Source-shape warnings ("referenced source fields exist in the shape") are not implemented (needs stored shapes).
+- The five required examples validated with zero errors unchanged.
+- `acme-csv.mapping.yaml` and `partner-api.mapping.yaml` were person-shaped (name/email/date), not valid against the observation schema
+  (unknown fields, required fields not covered, `timestamp` without `format`). Rewritten as observation mappings (the acme one uses columns Joined/Fee/First Name/Last Name/Status/Email-free; the partner one uses `$.attributes.*`); the column names beyond the original ones are illustrative.
+- 2026-11-21 validator r1: PASS (own table of invalid mappings per rule; 7 example mappings give 0 issues; CLI exit codes 0/1/2). documentor + runbook-refiner ran in parallel; deterministic docs check: PASS (3 verify blocks re-run).
+- Decisions: `--schema` defaults to ./canonical-schema.yaml relative to the CURRENT directory (documented: run from the repo root or pass --schema); strict-YAML errors print PARSE_ERROR (exit 1); extra rules beyond the spec (output must equal the canonical field name, enum const check, `from` syntax, transform arity, untyped const infers its type); acme/partner example mappings rewritten as observation mappings (illustrative columns). Source-shape warnings (referenced source fields vs recent run shape) are NOT implemented yet.

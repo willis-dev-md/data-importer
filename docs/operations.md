@@ -18,7 +18,7 @@
     importer rollback --run <id>
     importer reparse --source <id> [--run <id>]   # re-run the structural pipeline on the stored file
     importer infer <file-or-url> > draft-mapping.yaml
-    importer mapping validate <file>
+    importer mapping validate [--schema <file>] <file>
     importer mapping materialize <source>
 
 ### `importer migrate`
@@ -46,6 +46,42 @@ Output and exit codes, run against an empty Postgres 16:
     importer migrate: unknown direction "sideways" (want up, down or version)  (exit 2)
 
 Missing arguments also exit 2 with `usage: importer migrate up|down|version`.
+
+### `importer mapping validate`
+Parses a mapping file (strict YAML) and checks it against the canonical schema; no database needed. Issue codes are
+listed in [mapping-spec](mapping-spec.md#validation-on-save). Each issue is printed to stdout as `path: code: message`.
+
+`--schema` defaults to `./canonical-schema.yaml` relative to the **current directory**, not the binary or the file
+being validated. Run the command from the repository root, or pass `--schema <path>`; otherwise it exits 2 with
+`canonical schema: open canonical-schema.yaml: no such file or directory`.
+
+| Exit | Meaning |
+|---|---|
+| 0 | no errors (warnings may be printed) |
+| 1 | at least one error issue, or `PARSE_ERROR` (printed as `<file>: PARSE_ERROR: ...`) |
+| 2 | unreadable mapping file, schema not found/unreadable, unknown flag, or missing/extra arguments |
+
+Valid mapping (run from the repo root; no output, exit 0):
+
+<!-- verify -->
+```bash
+go run ./cmd/importer mapping validate docs/examples/ons-l55o.mapping.yaml
+echo "exit $?"
+```
+
+    exit 0
+
+Invalid mapping (real output for a test file with several mistakes; abridged: several further lines, such as
+`UNKNOWN_TRANSFORM`, `CONST_NOT_IN_ENUM`, `TYPE_MISMATCH` and the second `REQUIRED_NOT_COVERED`, are omitted):
+
+    $ importer mapping validate bad.yaml
+    fields.bogus: UNKNOWN_FIELD: "bogus" is not a canonical field
+    fields.measure.from[0]: BAD_FROM: "$.a..b" is not a field name, JSONPath ($.a.b), @meta.X or @ctx.X
+    fields.measure.transform[1]: TRANSFORM_ARGS: transform regex takes 2 argument(s), got 1
+    fields.series_id: SOURCE_CONFLICT: from, const and template are mutually exclusive (exactly one is allowed)
+    fields.unit.null_markers: NULL_MARKERS_WITHOUT_FLAG: null_markers without flag: the matched marker is discarded
+    fields.period_end: REQUIRED_NOT_COVERED: required canonical field "period_end" is not mapped
+                                                                           (exit 1)
 
 Scheduling: built in. `importer serve` runs the scheduler for every source with a `schedule`, so deploy at least
 one replica (several are safe). Concurrent runs for one source are prevented with row locks plus a Postgres

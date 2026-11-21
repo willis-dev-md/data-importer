@@ -1,7 +1,15 @@
 source: acme-csv
 version: 1
 fields:
-  name:  { from: ["First Name", "Last Name"], transform: 'concat(" ")', required: true }
-  email: { from: Email, transform: [trim, lower], validate: email }
-  date:  { from: Joined, type: date, format: "02/01/2006" }
+  series_id:    { const: acme_membership_fee }
+  measure:      { const: membership_fee }
+  series_title: { const: "Acme membership fee" }
+  period_type:  { from: Joined, type: period, format: "02/01/2006", output: period_type }
+  period_start: { from: Joined, type: period, format: "02/01/2006", output: period_start }
+  period_end:   { from: Joined, type: period, format: "02/01/2006", output: period_end }
+  value:        { from: Fee, type: decimal, null_markers: ["", "-"], flag: quality_flag }
+  unit:         { const: GBP }
+dimensions:
+  member_name:  { from: ["First Name", "Last Name"], transform: 'concat(" ")' }
+  status:       { from: Status, map: { Active: active, Lapsed: lapsed }, default: unknown }
 extra: keep

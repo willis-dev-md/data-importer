@@ -241,10 +241,60 @@ resulting precision follows the layout that matched: a layout with a day gives `
 without a day (BoE) are handled. Unparseable labels give `PARSE_FAILED`.
 
 ### Validation on save
-- every canonical field referenced exists in `canonical-schema.yaml` and types are compatible
-- required canonical fields are covered
-- referenced source fields exist in the source's recent `shape` (warning, not error)
-- dry-run against N sample raw records, returning error rate before activation
+Implemented (task 006, `internal/mapping`, `importer mapping validate`, see [operations](operations.md)):
+`mapping.Parse` reads strict YAML (an unknown key is a `PARSE_ERROR`), then `mapping.Validate` checks the mapping
+against `canonical-schema.yaml` and returns every finding as `{path, code, message, severity}`. Only
+`NULL_MARKERS_WITHOUT_FLAG` is a warning; every other code is an error.
+
+| Code | Severity | Meaning |
+|---|---|---|
+| `PARSE_ERROR` | error | not an issue from `Validate`: the file is not valid strict YAML for the mapping (syntax error or unknown key); printed by the CLI as `<file>: PARSE_ERROR: ...` |
+| `MISSING_SOURCE` | error | `source` is empty |
+| `BAD_EXTRA` | error | `extra` is not `keep` or `drop` |
+| `UNKNOWN_FIELD` | error | a key under `fields` is not a canonical field |
+| `DIMENSIONS_AS_FIELD` | error | `dimensions` appears under `fields`; use the top-level `dimensions:` block |
+| `REQUIRED_NOT_COVERED` | error | a required canonical field is not mapped |
+| `UNKNOWN_TYPE` | error | `type` is not one of `string int decimal bool date timestamp period` |
+| `TYPE_MISMATCH` | error | `type` cannot feed the canonical type (see below), `type: period` on a field other than `period_type`/`period_start`/`period_end`, or a direct mapping of the `dimensions` map |
+| `DIMENSION_TYPE` | error | a `dimensions:` entry has a `type` other than string |
+| `SOURCE_CONFLICT` | error | more than one of `from`, `const`, `template` |
+| `SOURCE_MISSING` | error | none of `from`, `const`, `template` |
+| `BAD_FROM` | error | a `from` entry is empty, or is not a field name, a JSONPath (`$.a.b`, `$.a[0]`, `$.a[*]`), `@meta.X` or `@ctx.X` |
+| `CONST_NOT_SCALAR` | error | `const` is a list or map |
+| `CONST_NOT_IN_ENUM` | error | `const` on an enum field (`period_type`) is not one of its values |
+| `UNKNOWN_TRANSFORM` | error | transform is not `trim lower upper coalesce concat(sep) split(sep) regex(pat,repl)` (or is not `name` / `name(args)`) |
+| `TRANSFORM_ARGS` | error | wrong number of transform arguments (`trim lower upper coalesce` 0; `concat split` 1; `regex` 2) |
+| `UNKNOWN_VALIDATOR` | error | `validate` is not `email url regex(pat) range(min,max)` |
+| `VALIDATOR_ARGS` | error | wrong arguments: `email`/`url` take none, `regex` one, `range` two numbers with min <= max |
+| `FORMAT_REQUIRED` | error | `type` is `date` or `timestamp` and `format` is missing, or a `format` entry is empty |
+| `BAD_REGEX` | error | the pattern of `regex(...)` (transform or validator) does not compile |
+| `OUTPUT_NOT_PERIOD` | error | `output` on a field that is not `type: period` |
+| `BAD_OUTPUT` | error | `output` is not `period_type`, `period_start` or `period_end` |
+| `OUTPUT_MISMATCH` | error | `output` differs from the canonical field name it is mapped to (e.g. `output: period_end` under `period_start`) |
+| `BAD_TEMPLATE` | error | `template` has an unbalanced, nested or empty `{}` placeholder, or an `@` placeholder that is not `{@ctx.x}` / `{@meta.x}` |
+| `UNKNOWN_FLAG_FIELD` | error | `flag` names a field that is not canonical |
+| `NULL_MARKERS_WITHOUT_FLAG` | warning | `null_markers` without `flag`: the matched marker is discarded |
+| `BAD_PRECISION` | error | `precision` is not `year quarter month day` |
+
+Rules the implementation adds beyond the original list:
+- `output` must equal the canonical field name (`OUTPUT_MISMATCH`); `type: period` feeds only `period_type`,
+  `period_start` and `period_end`.
+- An enum `const` must be one of the enum values (`CONST_NOT_IN_ENUM`).
+- `from` syntax is checked (`BAD_FROM`); transform and validator argument counts are checked (`TRANSFORM_ARGS`,
+  `VALIDATOR_ARGS`). Arguments may be quoted with `"` or `'` (needed when a regex contains a comma).
+- An untyped `const` takes its type from the YAML scalar, so `const: 1` can feed a decimal. Any other field without
+  `type` is a string, so a decimal field fed by `from` needs `type: decimal`.
+- Type compatibility (mapping type to canonical type): string to string; string to enum; int to int; decimal or int
+  to decimal; bool to bool; date to date; timestamp or date to timestamp.
+
+Not implemented yet:
+- referenced source fields exist in the source's recent `shape` (warning, not error): needs stored shapes
+- dry-run against N sample raw records, returning error rate before activation (task 007 evaluates mappings)
+
+Note on the examples: `docs/examples/acme-csv.mapping.yaml` and `partner-api.mapping.yaml` were person-shaped and
+invalid against the observation schema. They were rewritten as observation mappings and now validate with zero
+errors; their column names (for example `Fee`, `Status`, `$.attributes.country`) are illustrative, not real publisher
+columns. The person-shaped snippet under "Mapping" above is likewise only an illustration of the field options.
 
 ### Errors
 Mapping errors are per record and per field: `{field, code, message}` with codes such as

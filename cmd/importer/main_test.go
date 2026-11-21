@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -73,6 +75,56 @@ func TestMigrateCommand(t *testing.T) {
 			}
 			if !strings.Contains(out.String(), tt.wantOut) || !strings.Contains(errb.String(), tt.wantErr) {
 				t.Errorf("stdout %q stderr %q; want %q / %q", out.String(), errb.String(), tt.wantOut, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestRunMappingValidate(t *testing.T) {
+	dir := t.TempDir()
+	schema := "../../canonical-schema.yaml"
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	bad := write("bad.yaml", "source: s\nfields:\n  nope: {const: 1}\n")
+	warn := write("warn.yaml", `source: s
+fields:
+  series_id: {const: a}
+  measure: {const: m}
+  period_type: {from: p, type: period, output: period_type}
+  period_start: {from: p, type: period, output: period_start}
+  period_end: {from: p, type: period, output: period_end}
+  value: {from: v, type: decimal, null_markers: [x]}
+`)
+	notyaml := write("notyaml.yaml", "source: [")
+	tests := []struct {
+		name     string
+		args     []string
+		wantCode int
+		wantOut  string
+	}{
+		{"valid example", []string{"mapping", "validate", "--schema", schema, "../../docs/examples/ons-l55o.mapping.yaml"}, 0, ""},
+		{"errors have path code message", []string{"mapping", "validate", "--schema", schema, bad}, 1, "fields.nope: UNKNOWN_FIELD: "},
+		{"warnings only", []string{"mapping", "validate", "--schema", schema, warn}, 0, "fields.value.null_markers: NULL_MARKERS_WITHOUT_FLAG: "},
+		{"parse error", []string{"mapping", "validate", "--schema", schema, notyaml}, 1, "PARSE_ERROR"},
+		{"unreadable file", []string{"mapping", "validate", "--schema", schema, filepath.Join(dir, "missing.yaml")}, 2, ""},
+		{"unreadable schema", []string{"mapping", "validate", "--schema", filepath.Join(dir, "missing.yaml"), bad}, 2, ""},
+		{"no file", []string{"mapping", "validate"}, 2, ""},
+		{"no subcommand", []string{"mapping"}, 2, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out, errb bytes.Buffer
+			code := run(tt.args, &out, &errb)
+			if code != tt.wantCode {
+				t.Errorf("code = %d, want %d (stdout %q stderr %q)", code, tt.wantCode, out.String(), errb.String())
+			}
+			if !strings.Contains(out.String(), tt.wantOut) {
+				t.Errorf("stdout %q missing %q", out.String(), tt.wantOut)
 			}
 		})
 	}

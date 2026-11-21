@@ -1,0 +1,17 @@
+# Canonical schema: the generic observation (version 2, see docs/design.md section 7).
+# Field types: string, int, decimal, bool, date, timestamp, enum (needs `values`), map (map of strings).
+version: 2
+entity: observation
+fields:
+  series_id:    { type: string, required: true }
+  series_title: { type: string }
+  measure:      { type: string, required: true }
+  statistic:    { type: string }
+  dimensions:   { type: map }
+  period_type:  { type: enum, values: [year, tax_year, quarter, month, day], required: true }
+  period_start: { type: date, required: true }
+  period_end:   { type: date, required: true }
+  value:        { type: decimal, nullable: true }
+  unit:         { type: string }
+  status:       { type: string }
+  quality_flag: { type: string }
