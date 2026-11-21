@@ -106,14 +106,38 @@ xlsx:
   sheet: "Sheet name"        # exact name; hidden sheets are allowed; or `sheet_index`; see `sheets` for several
   start_row: 8
   end_row: null              # default: last row
-  header: false              # true => header row index in `header_row`
+  header: false              # default true (names from `header_row`, default 1); false => `columns` required
   sheets: ["Sheet name"]    # or { except: [Notes] } for every other sheet; the sheet name is available as @ctx.sheet
   columns: { A: year, B: day, C: month, D: rate }   # letters -> names (required when header: false)
   use_cached_values: true    # formulas are read as last saved values; formulas are never evaluated
 ```
-Merged cells are read as their top-left value only; dates stored as Excel serial numbers are returned as dates.
-Macros, external links and embedded content are ignored. Files are parsed with limits on size, rows and
-uncompressed size (zip-bomb protection).
+Implemented behaviour (task 013, `internal/config/xlsx.go`, `internal/source/xlsx.go`):
+- **Cell values are text as stored.** Every cell is read as its saved text: a number as its saved literal (`13.8438`,
+  no display rounding), a boolean as `1`/`0`, an error cell as its literal (`#N/A`), an empty or missing cell as `""`.
+  **Dates are not converted:** a date-formatted cell arrives as its Excel serial number text (e.g. `45293`). Typed values
+  appear only through the `normalize` steps `to_int` and `to_number` (see the row pipeline below).
+- **Formulas are never evaluated.** A formula cell gives its cached value, or `""` if the file saved none.
+  `use_cached_values: false` is rejected.
+- **Sheets:** hidden sheets are read like any other; `sheet_index` is 0-based. `sheets: {except: [...]}` keeps workbook
+  order. An unknown name in `sheet`, `sheets` or `except` is an error that lists the available sheets (hidden ones are
+  marked). Excluding every sheet is an error. Each record gets `_ctx.sheet` and `_source: {sheet, row}`.
+- **Rows and header:** `header` defaults to `true`. Without `columns` the names come from row `header_row` (default 1),
+  and `start_row` defaults to the row after the header. Rows whose configured columns are all empty are skipped before the
+  pipeline. `_source.row` is the real 1-based row number. Merged cells give only the top-left value (covered cells are
+  empty). Columns not listed in `columns` are not read.
+- **Limits** (adapter defaults): file 100 MiB, 2,000,000 rows walked over the selected sheets (sheets hold at most
+  1,048,576 rows each), 256 sheets, 1 GiB decompressed, 10,000 zip entries, 16 MiB of text in one row. Each zip entry is
+  inflated against its declared size, so a lying header or a zip bomb is rejected. A breached limit is an error
+  (`ErrTooLarge`, `ErrXLSXTooManyRows`, `ErrXLSXUnzipLimit` or `ErrXLSXRowTooLarge`).
+- **Corrupt files:** a file that is not a workbook, is truncated or garbled, is encrypted, or whose sheet XML is not
+  well-formed or is structurally inconsistent (row or cell numbers out of order, bad cell references, shared-string index
+  out of range) fails with `ErrXLSXBadArchive` naming the part and row. A stream never ends early without an error.
+  Decision and reasons: [ADR-0006](adr/0006-xlsx-cell-values-and-checks.md).
+- No network access, macros (`vbaProject` is never read) or external links are followed.
+
+Known limits, not detected by the adapter (also in the [roadmap](roadmap.md) hardening backlog): a `<c>` placed outside
+`<sheetData>` is ignored; a cell whose `t` does not match its `<is>`/`<v>` content reads as empty; a cell moved to another
+valid column of the same row, or a changed value, cannot be detected.
 
 ## Static context
 A source (usually a group member) can carry static values that mappings read as `@ctx.<name>`:
@@ -143,7 +167,7 @@ resolve:
 ```
 If no candidate answers, the run fails with the list of URLs tried. The chosen URL is recorded on the run.
 
-## Row pipeline (`table:`) for CSV and XLSX
+## Row pipeline (`table:`) for XLSX
 
 Structural, order-dependent clean-up that runs **at import** ([ADR-0004](adr/0004-structural-parsing-at-import.md)).
 Steps run in order; the output rows are what is stored. Closed set:
@@ -160,6 +184,23 @@ Steps run in order; the output rows are what is stored. Closed set:
 | `strip: {column: [chars]}` | remove characters (e.g. the leading `'` in ASHE SOC codes) |
 
 Every stored row also gets `_source: {sheet, row}` (or line number) for traceability.
+
+Implemented for `kind: xlsx` (task 013, `internal/source/pipeline.go`). `table:` and `context:` on a `kind: csv` source
+are rejected at validation, not ignored, until CSV support lands.
+- Steps apply in the order listed. A step failure on a row is a `RowError` (the row is not stored and the stream
+  continues); steps never panic. Each step has its own unit test (`TestPipelineSkipRows` to `TestPipelineStrip`).
+- Section and `fill_down` state is per sheet. Headings are trimmed; `section.match` is tested only against text;
+  `fill_down` with `reset_on: section` forgets the carried value at each heading.
+- `normalize` on mixed types: text transforms leave non-text values alone. `to_int` gives int64 for text or a number that
+  holds a whole number (`" 1694 "`, `1694.0`, `1e3`); anything else (`abc`, `1.5`, `1_000`, hex, `inf`, `NaN`, 1e15 or more)
+  is a `RowError` naming the column. `to_number` gives int64, or float64 when needed, for plain decimal text; markers
+  (`x`, `..`, `1,234`) stay as they are; a literal with more than 15 significant digits that does not fit int64 stays text.
+  A column absent from the row is skipped.
+- `natural_key` parts are a field name, a section or context variable name (falling back to `_ctx`), or `@ctx.<name>`.
+  An **empty part is allowed** (a BoE event without a day); only a key whose parts are all empty is a `RowError`.
+  `@meta.` is rejected for xlsx.
+- `context:` scalars are stored as strings. `_ctx` holds the context values, `sheet`, and the section variables; a section
+  variable overrides a context value, and `sheet` is reserved.
 
 ## Source: HTTP JSON API
 

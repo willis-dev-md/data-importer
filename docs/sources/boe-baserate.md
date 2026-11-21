@@ -40,5 +40,24 @@ about (all of `HISTORICAL SINCE 1694`, the first and last rows of `Raw Data`); t
 5. Cadence: the file changes only on rate decisions, so a cheap `daily` schedule with change detection is
    better than a fixed monthly date.
 
+## Verified by tests (task 013)
+
+Fixture `testdata/boe/baserate-trimmed.xlsx`, sheet `HISTORICAL SINCE 1694`, read with
+`docs/examples/boe-baserate.source.yaml` (location overridden). These numbers are asserted by tests, not estimates:
+
+- `TestXLSXBoEGolden` (`internal/source`): **854** records, **0** row errors; five distinct `_ctx.series_name` values with
+  counts Bank Rate 573, Min.Band 1 Dealing Rate 127, Min Lending Rate 82, Official Bank Rate 40, Repo Rate 32
+  (573 + 127 + 82 + 40 + 32 = 854); first record is `Bank Rate`, year 1694, month `oct`, day empty, rate 6; the
+  `{year: 1695, month: may}` record has its year filled down; `Feb ` is normalised to `feb`; **17** records have an empty
+  day; the `1933-1938 no changes` rows are absent; all natural keys are unique.
+- `TestXLSXASHEGolden` (`internal/source`, ASHE fixture `testdata/ashe/t20-7a-trimmed.xlsx`): sheets `All` and
+  `Male Full-Time` give 217 rows each (434 in total); the footers and six age-only duplicate rows are dropped.
+- `TestBoEBaseRateEndToEnd` (`internal/importer`, real Postgres): `importer.Run` inserts 854 records with 0 row errors.
+  Evaluating all 854 stored payloads with `docs/examples/boe-baserate.mapping.yaml` gives zero mapping errors: 17 events
+  are `period_type: month` (1694 Oct is 1694-10-01 to 1694-10-31) and 837 are `day`; `series_id` takes five BOE_* values;
+  a re-run reports `unchanged=854`.
+- `TestCLIXLSXSource` (`cmd/importer`): `importer sources apply` then `importer run` for `kind: xlsx` gives `inserted=854`,
+  then `unchanged=854`.
+
 Config: [`../examples/boe-baserate.source.yaml`](../examples/boe-baserate.source.yaml) and
 [`../examples/boe-baserate.mapping.yaml`](../examples/boe-baserate.mapping.yaml).

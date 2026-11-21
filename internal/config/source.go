@@ -24,17 +24,20 @@ const (
 
 // Source is the setup of one data source (see docs/mapping-spec.md).
 type Source struct {
-	ID              string    `yaml:"id"`
-	Kind            string    `yaml:"kind"`
-	Location        string    `yaml:"location"`
-	CSV             *CSV      `yaml:"csv,omitempty"`
-	NaturalKey      []string  `yaml:"natural_key"`
-	MissingPolicy   string    `yaml:"missing_policy,omitempty"`
-	MaxErrorRatio   float64   `yaml:"max_error_ratio"`
-	Schedule        *Schedule `yaml:"schedule,omitempty"`
-	ChangeDetection []string  `yaml:"change_detection,omitempty"`
-	Enabled         *bool     `yaml:"enabled,omitempty"`
-	Auth            *Auth     `yaml:"auth,omitempty"`
+	ID              string            `yaml:"id"`
+	Kind            string            `yaml:"kind"`
+	Location        string            `yaml:"location"`
+	CSV             *CSV              `yaml:"csv,omitempty"`
+	XLSX            *XLSX             `yaml:"xlsx,omitempty"`
+	Table           Table             `yaml:"table,omitempty"`
+	Context         map[string]string `yaml:"context,omitempty"`
+	NaturalKey      []string          `yaml:"natural_key"`
+	MissingPolicy   string            `yaml:"missing_policy,omitempty"`
+	MaxErrorRatio   float64           `yaml:"max_error_ratio"`
+	Schedule        *Schedule         `yaml:"schedule,omitempty"`
+	ChangeDetection []string          `yaml:"change_detection,omitempty"`
+	Enabled         *bool             `yaml:"enabled,omitempty"`
+	Auth            *Auth             `yaml:"auth,omitempty"`
 }
 
 // CSV holds the options of a csv source.
@@ -137,11 +140,11 @@ func (s *Source) Validate() error {
 		bad("id", "required")
 	}
 	switch s.Kind {
-	case KindCSV:
+	case KindCSV, KindXLSX:
 	case "":
 		bad("kind", "required")
 	default:
-		bad("kind", "unsupported kind %q (supported: csv)", s.Kind)
+		bad("kind", "unsupported kind %q (supported: csv, xlsx)", s.Kind)
 	}
 	if strings.TrimSpace(s.Location) == "" {
 		bad("location", "required")
@@ -167,6 +170,22 @@ func (s *Source) Validate() error {
 	}
 	if s.Kind == KindCSV {
 		s.validateCSV(bad)
+	}
+	if s.Kind == KindXLSX {
+		s.validateXLSX(bad)
+		if s.CSV != nil {
+			bad("csv", "only valid for kind csv")
+		}
+	} else if s.Kind != "" {
+		if s.XLSX != nil {
+			bad("xlsx", "only valid for kind xlsx")
+		}
+		if len(s.Table) > 0 {
+			bad("table", "the row pipeline is only supported for kind xlsx")
+		}
+		if len(s.Context) > 0 {
+			bad("context", "static context is only supported for kind xlsx")
+		}
 	}
 	return errors.Join(errs...)
 }

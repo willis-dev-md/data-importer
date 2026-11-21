@@ -78,7 +78,7 @@ func runImport(args []string, stdout, stderr io.Writer) int {
 	start := time.Now()
 	res, err := importer.Run(ctx, importer.Deps{
 		Store:    st,
-		Adapters: map[string]source.Adapter{config.KindCSV: source.NewCSV(fetch)},
+		Adapters: map[string]source.Adapter{config.KindCSV: source.NewCSV(fetch), config.KindXLSX: source.NewXLSX(fetch)},
 	}, *id, importer.Options{DryRun: *dry})
 	dur := time.Since(start).Round(time.Millisecond)
 	if errors.Is(err, importer.ErrAlreadyRunning) {
