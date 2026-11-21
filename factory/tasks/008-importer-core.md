@@ -35,5 +35,5 @@ docs/design.md (Import flow and failure handling as implemented); docs/data-mode
 docs/runbooks/import-failures.md (failed, aborted by max_error_ratio, already running, cancelled; rejects table queries)
 
 ## Status
-pending
+in-progress
 ## Log

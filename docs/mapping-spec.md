@@ -289,7 +289,7 @@ Rules the implementation adds beyond the original list:
 
 Not implemented yet:
 - referenced source fields exist in the source's recent `shape` (warning, not error): needs stored shapes
-- dry-run against N sample raw records, returning error rate before activation (task 007 evaluates mappings)
+- dry-run against N sample raw records, returning error rate before activation (`Eval` exists since task 007, see below; the dry-run command does not)
 
 Note on the examples: `docs/examples/acme-csv.mapping.yaml` and `partner-api.mapping.yaml` were person-shaped and
 invalid against the observation schema. They were rewritten as observation mappings and now validate with zero
@@ -298,4 +298,36 @@ columns. The person-shaped snippet under "Mapping" above is likewise only an ill
 
 ### Errors
 Mapping errors are per record and per field: `{field, code, message}` with codes such as
-`MISSING_REQUIRED`, `TYPE_MISMATCH`, `PARSE_FAILED`, `VALIDATION_FAILED`.
+`MISSING_REQUIRED`, `TYPE_MISMATCH`, `PARSE_FAILED`, `VALIDATION_FAILED` (details below).
+
+### Implemented behaviour (task 007)
+`mapping.Eval(m, payload) Result{Fields, Extra, Errors}` (`internal/mapping`, library only, no CLI yet) maps one raw
+payload. Behaviour checked with a throwaway program against the code:
+
+- **Errors never abort.** Each field is evaluated on its own; a failing field adds a `FieldError{Field, Code, Message}`
+  (`dimensions.<name>` for a dimension) and is absent from `Fields`. Errors are ordered by canonical field name, then
+  dimensions by name. A panic inside a field becomes `PARSE_FAILED`.
+- **Codes:** `MISSING_REQUIRED` (`required` field empty after `default`; a `template` placeholder is empty unless `empty_ok`);
+  `TYPE_MISMATCH` (value of the wrong kind, e.g. a list or map for a string, a bool for an int/decimal; `range` on a non-number);
+  `PARSE_FAILED` (text does not parse as the type or layout, non-finite decimal, bad transform, unclosed `{` in a template);
+  `VALIDATION_FAILED` (`email`, `url`, `regex`, `range` rejected the converted value).
+- **Output Go types** in `Fields`: `string`, `int` as `int64`, `decimal` as `float64`, `bool`, `date` and `timestamp` as
+  `time.Time` (dates at UTC midnight, timestamps converted to UTC), `period` as `time.Time` for `period_start`/`period_end`
+  and a string for `period_type`. `dimensions` is always present, a `map[string]string`; empty values are omitted.
+- **Known limitation: decimal is `float64`.** Values with more than about 15-17 significant digits lose precision
+  (`0.1234567890123456789` becomes `0.12345678901234568`). `13.8438`, `272642` and `34229.1` round-trip exactly. The exact
+  text stays in the raw payload. `-0` is emitted as `-0`. The `decimal` type rejects `NaN` and `Inf` (`PARSE_FAILED`), but
+  `validate: range(min,max)` on a non-decimal field accepts the string `"NaN"` (`ParseFloat` accepts it and the comparison is false).
+- **Inputs:** several `from` entries are joined with single spaces (non-empty ones, trimmed). An empty or blank string counts
+  as missing, for `required` and `default` alike. `default` is used instead of `map` (a defaulted value is not looked up).
+  `map` passes an unmapped value through unchanged.
+- **Null markers:** a value equal to a `null_markers` entry makes the field present with a nil value; the marker goes to the
+  `flag` field unless that field has its own value. `template` placeholders use the same references as `from`.
+- **Extra:** `extra: keep` collects payload keys no field read; `drop` (or empty) leaves `Extra` empty. Keys starting with
+  `_` (`_meta`, `_ctx`, `_source`) are never in `Extra`.
+- **Periods:** layouts `YYYY`, `tax_year_ending`, `YYYY Qn`, `YYYY MON` or Go layouts, tried in order. `MON` is the English
+  three-letter abbreviation, case-insensitive; `Sept` or `June` give `PARSE_FAILED` (also with the Go layout `2006 Jan`).
+  `precision` only coarsens: `precision: month` on a day layout gives `period_type: month` and the start is the 1st, while
+  `precision: day` on a month layout changes nothing. A `time.Time` input counts as a day.
+
+Remaining: the dry-run against stored samples and the `importer` command that uses `Eval` are later tasks.

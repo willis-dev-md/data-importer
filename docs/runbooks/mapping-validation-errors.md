@@ -1,7 +1,7 @@
 # Runbook: mapping validation errors
 
 **Owner role:** on-call engineer (data onboarding)  |  **Severity if this happens:** low (a mapping is rejected before it is used)
-**Last verified:** 2026-11-21, ran `make build`, every command and snippet below with `bin/importer` and `go run ./cmd/importer` (task 006 working tree)
+**Last verified:** 2026-11-21, ran the validate commands and snippets with `go run ./cmd/importer`, and the runtime-error examples via a throwaway `mapping.Eval` Go test in a scratch copy (task 007)
 
 ## When to use
 `importer mapping validate` prints issues or exits non-zero for a mapping file (`docs/examples/*.mapping.yaml` or a new source's mapping).
@@ -100,8 +100,59 @@ Snippets below are lines added to (or removed from) an otherwise valid mapping. 
 | UNKNOWN_FLAG_FIELD | `value: { from: value, type: decimal, null_markers: ["-"], flag: nope }` | `fields.value.flag: UNKNOWN_FLAG_FIELD: flag names "nope", which is not a canonical field` | `flag` must name a canonical field (usually `quality_flag`) | name an existing canonical field |
 | NULL_MARKERS_WITHOUT_FLAG (warning, exit stays 0) | `value: { from: value, type: decimal, null_markers: ["-"] }` | `fields.value.null_markers: NULL_MARKERS_WITHOUT_FLAG: null_markers without flag: the matched marker is discarded` | markers turn into null but the reason (e.g. `x`, `..`) is lost | add `flag: quality_flag` to keep the marker, or accept the loss on purpose |
 
-Runtime row errors (MISSING_REQUIRED, TYPE_MISMATCH at read time, PARSE_FAILED, VALIDATION_FAILED) are not validation
-codes; task 007 adds them here. UNVERIFIED: none of the above is unrun, but behaviour on a mapping where several codes combine was only run for UNKNOWN_FIELD + NULL_MARKERS_WITHOUT_FLAG.
+UNVERIFIED: behaviour on a mapping where several validation codes combine was only run for UNKNOWN_FIELD + NULL_MARKERS_WITHOUT_FLAG.
+
+### Runtime field errors (the evaluator, `internal/mapping/eval.go`)
+
+These are NOT printed by `importer mapping validate`: a mapping can validate clean and still produce them for a bad record.
+`mapping.Eval(mapping, payload)` returns `Result{Fields, Extra, Errors}`. Each error is `{Field, Code, Message}` (`Field` is the
+canonical field name, or `dimensions.<name>`; errors are ordered canonical fields by name, then dimensions by name).
+A record with errors is still returned: the failing field is simply absent from `Fields`, every other field is evaluated normally,
+and Eval never panics (an internal panic is reported as `PARSE_FAILED`).
+
+There is no CLI for evaluation yet. Examples below were run with a throwaway Go test calling `mapping.Parse` and `mapping.Eval`
+on a scratch copy of the repo (not part of the repo). Each mapping is `source: demo`, `extra: keep` plus the fields shown.
+
+| Code | Triggers | Mapping + payload | Real result |
+|---|---|---|---|
+| MISSING_REQUIRED | `required: true` field resolves to nothing/blank and has no `default`; or a `template` placeholder is empty and `empty_ok` is not set | `series_id: { from: id, required: true }`, `unit: { from: u }`; `{"id": "", "u": "GBP"}` | Fields `{unit: GBP, dimensions: {}}`; Errors `[{series_id MISSING_REQUIRED "required field has no value"}]` |
+| MISSING_REQUIRED (template) | as above | `series_id: { template: "s:{a}:{b}" }`; `{"a": "1"}` | Errors `[{series_id MISSING_REQUIRED "template placeholder {b} is empty"}]` |
+| TYPE_MISMATCH | the value has the wrong shape for the field `type` (object where a number is expected, bool for a number/int) | `value: { from: value, type: decimal }`; `{"value": {"a": 1}, "u": "GBP"}` | Errors `[{value TYPE_MISMATCH "expected a number, got map[string]interface {}"}]`; with `{"value": true}`: `"expected a number, got a bool"` |
+| PARSE_FAILED | the text does not parse as the type (number, int, bool, date/timestamp format, period layout) or a transform fails | `value: { from: value, type: decimal }`; `{"value": "12.3.4"}` | Errors `[{value PARSE_FAILED "\"12.3.4\" is not a number"}]` |
+| PARSE_FAILED (date) | as above | `period_end: { from: d, type: date, format: "2006-01-02" }`; `{"d": "31/12/2024"}` | Errors `[{period_end PARSE_FAILED "\"31/12/2024\" does not match format 2006-01-02"}]` |
+| VALIDATION_FAILED | the value converted fine but the `validate` rule rejects it (`email`, `url`, `regex(..)`, `range(min,max)`) | `value: { from: value, type: decimal, validate: "range(0,100)" }`; `{"value": "250"}` | Errors `[{value VALIDATION_FAILED "250 is outside 0..100"}]` |
+
+Mixed record, real result (`value` bad, `unit` fine): `{"value": "abc", "u": "GBP"}` gives Fields `{unit: GBP}` and Errors
+`[{value PARSE_FAILED "\"abc\" is not a number"}]`: one bad field never fails the others.
+Note: an empty list or blank string counts as "no value", so it gives MISSING_REQUIRED only when the field is `required`, otherwise
+the field is just omitted with no error.
+
+**Mapping problem or source-data problem?**
+1. Does the same error appear for (almost) every record of the source? Mapping problem: wrong `type`, wrong `format`/layout, wrong
+   `from` column name (the field resolves to nothing, so `required` gives MISSING_REQUIRED), or a `validate` rule that is too strict. Fix
+   the mapping file, run `importer mapping validate`, re-import or re-read.
+2. Does it appear for a few records only, and does the Message quote a value that really is bad in the raw payload (`"abc"`, a
+   `31/12/2024` in an ISO-date column, `250` outside the range)? Source-data problem: do not change the mapping to hide it. The
+   record stays readable without that field; report the values to the data owner. If the value is a known "no data" symbol, add it to
+   `null_markers` (see below) instead.
+3. Confirm by looking at the raw JSONB payload of one failing record and comparing it with the Message.
+
+**Not errors (operators will see these)**
+- ASHE suppression marker: with `value: { from: value, type: decimal, null_markers: ["x", ".."], flag: quality_flag }` and
+  `{"value": "x"}`, real result: Fields `{value: nil, quality_flag: "x"}`, Errors empty. The value is null on purpose and the marker is
+  kept in `quality_flag`. Without `flag` the marker is silently discarded (warning `NULL_MARKERS_WITHOUT_FLAG`). If a new symbol (e.g.
+  `[c]`) shows up as PARSE_FAILED on `value`, add it to `null_markers`.
+- BoE month-only dates (early events such as Oct 1694 have no day): with the shipped `boe-baserate.mapping.yaml` layouts
+  `["2 Jan 2006", "Jan 2006"]` and inputs `from: [day, month, year]`, `{"day": "", "month": "Oct", "year": "1694"}` gives
+  `period_type: month`, `period_start: 1694-10-01`, `period_end: 1694-10-31`, no errors; with a day (`"5"`) it gives `period_type: day`
+  and `1694-10-05`. If the mapping lists only the day layout, the month-only row fails:
+  `[{period_start PARSE_FAILED "period \"Oct 1694\" does not match layout 2 Jan 2006"}]`. Fix: add the month-only layout.
+  Layouts are tried in order and the first match wins.
+
+**Future / UNVERIFIED:** mapping errors are meant to reach API clients as `mapping_errors` on a record once the DataService exists
+(task 011). That path does not exist yet and was not run; until then these errors are only visible to Go callers of `mapping.Eval`.
+Also UNVERIFIED (not run): `email`/`url`/`regex` validator failures and TYPE_MISMATCH for `int`, `date` and period inputs (messages are
+in `internal/mapping/convert.go`, `period.go`, `transform.go`); PARSE_FAILED from a failing transform.
 
 ## Verify
 Re-run step 2 for the file: no issue lines (or only `NULL_MARKERS_WITHOUT_FLAG` you accept) and `exit 0`.

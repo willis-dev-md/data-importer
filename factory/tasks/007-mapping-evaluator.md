@@ -37,5 +37,22 @@ docs/mapping-spec.md (transforms, period types, FieldError codes, known limitati
 docs/runbooks/mapping-validation-errors.md (add runtime FieldError codes MISSING_REQUIRED, TYPE_MISMATCH, PARSE_FAILED, VALIDATION_FAILED with fixes)
 
 ## Status
-in-progress
+validated
 ## Log
+
+### Worker round 1 (task 007)
+Files: `internal/mapping/{eval,transform,convert,period}.go`, `eval_test.go`. `validate.go`/`types.go` unchanged (rules already match the evaluator).
+Decisions:
+- `Eval(m, payload) Result`; `Fields` values: string, int64, float64, bool, `time.Time` (UTC midnight; dates/period_start/period_end), `period_type` string, `dimensions` map[string]string (always present). A null-marker field is present with nil value; an optional empty field is omitted. `Extra` is never nil.
+- KNOWN LIMITATION: `decimal` is emitted as float64; no exact-string round trip.
+- Pipeline order: resolve, null_markers, transforms, empty check (blank string counts as missing), default (used as-is, skips `map`) / required, `map` lookup (unmapped values pass through), type convert, validate.
+- Several inputs without `concat`/`coalesce`, a `split` result or a `[*]` wildcard left as a list are joined with a space (elements trimmed, empty skipped).
+- `split` on non-strings and `concat`/`coalesce` on scalars are no-ops. `split(sep)` args containing a comma need quotes.
+- Period: no `format` tries `YYYY`, `YYYY Qn`, `YYYY MON`; format entries `YYYY`, `YYYY Qn`, `YYYY MON`, `tax_year_ending` are built-ins, anything else is a Go layout. Layout precision derived from tokens (day, else month, else year); a layout without a year never matches. `precision` only coarsens (finer than the layout is ignored). A `time.Time` input is day precision. `output` defaults to the field name.
+- `extra`: only `keep` keeps; empty or `drop` drops. Keys used by `from`, JSONPath (first key) or template placeholders count as consumed.
+- Flag fields are written after all fields and never overwrite a non-nil mapped value.
+- Bad transform/validator/regex at eval time (Validate not run) gives PARSE_FAILED/VALIDATION_FAILED, a per-field recover turns any bug into PARSE_FAILED.
+- Fuzz: `FuzzEval` seed corpus runs in `go test`; ran `go test -fuzz FuzzEval` 45s (550k execs, no failure).
+- 2026-11-21 validator r1: PASS (independent Python calendar oracle: 658 period cases, 0 mismatches; fuzz 20 s). documentor + runbook-refiner ran in parallel; deterministic docs check: PASS.
+- Known limitations (documented in docs/mapping-spec.md; NOT fixed): `range(min,max)` accepts the string "NaN"; `-0` is emitted as -0; decimal is float64 (13.8438, 272642, 34229.1 round-trip exactly; >15-17 significant digits lose precision).
+- Decisions: dates/periods are time.Time at UTC midnight; multi-input lists joined with spaces; `map` passes unmapped values through; `default` skips `map`; empty `extra` means drop; period `precision` only coarsens.
