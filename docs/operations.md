@@ -8,11 +8,13 @@
 | `TLS_CERT_FILE` / `TLS_KEY_FILE` | server TLS |
 | `AUTH_TOKENS_FILE` | token -> roles/sources map |
 | `IMPORT_CONCURRENCY` | max simultaneous import runs (default 4) |
-| `SOURCES_DIR` | directory of source + mapping YAML |
+| `SOURCES_DIR` | directory of source + mapping YAML; default for `importer sources apply --dir` |
+| token env vars | any name given in a source's `auth.token_env`; read at `importer run` time only |
 
 ## CLI
     importer migrate up
     importer serve
+    importer sources apply [--dir <dir>] [--schema <file>]
     importer run --source <id> [--dry-run]
     importer group plan|apply <group.yaml>
     importer rollback --run <id>
@@ -46,6 +48,84 @@ Output and exit codes, run against an empty Postgres 16:
     importer migrate: unknown direction "sideways" (want up, down or version)  (exit 2)
 
 Missing arguments also exit 2 with `usage: importer migrate up|down|version`.
+
+### `importer sources apply`
+Registers sources and mappings from a directory (`--dir`, default `$SOURCES_DIR`). Needs `DATABASE_URL`. `--schema`
+defaults to `./canonical-schema.yaml` (current directory, as for `mapping validate`).
+
+Layout (the naming used in `docs/examples/`): `<name>.source.yaml` with an optional `<name>.mapping.yaml`.
+
+- Everything is validated first (sources strictly, mappings against the canonical schema); if anything is wrong, **nothing is written**. The write itself is one transaction.
+- These are errors: an empty directory (no `*.source.yaml`), a mapping file with no source file, a duplicate source id, and a mapping whose `source:` differs from its source's `id` (`SOURCE_MISMATCH`).
+- A mapping is stored as a **new version only when its content changed** against the active version, and is then activated. Comments, key order and the `version:` key in the file do not count as changes. Unchanged re-apply writes nothing.
+
+Real output (ONS example, `location` pointing at `testdata/ons/l55o.csv`):
+
+    $ importer sources apply --dir src       -> ons-l55o: source created, mapping v1 created     (exit 0)
+    $ importer sources apply --dir src       -> ons-l55o: source unchanged, mapping v1 unchanged (exit 0)
+    $ # same file plus a comment line        -> ons-l55o: source unchanged, mapping v1 unchanged (exit 0)
+    $ # mapping content changed              -> ons-l55o: source unchanged, mapping v2 created   (exit 0)
+    $ importer sources apply --dir empty
+    importer sources apply: sources dir .../empty: no *.source.yaml files found
+    nothing was written                                                          (exit 1)
+    $ # mapping says `source: other`
+    .../ons-l55o.mapping.yaml: SOURCE_MISMATCH: mapping says source "other" but .../ons-l55o.source.yaml is source "ons-l55o"
+    importer sources apply: invalid files; nothing was written                   (exit 1)
+    $ # mapping file without source file
+    importer sources apply: .../ons-l55o.mapping.yaml: mapping file has no matching ons-l55o.source.yaml
+    nothing was written                                                          (exit 1)
+    $ env -u SOURCES_DIR importer sources apply
+    importer sources apply: no directory: pass --dir or set SOURCES_DIR          (exit 2)
+
+Exit codes: 0 applied; 1 invalid files or database error; 2 usage (no directory, no `DATABASE_URL`, unreadable
+directory or schema, unknown flag).
+
+### `importer run`
+`importer run --source <id> [--dry-run]` imports one source (CSV so far) from the stored config using `DATABASE_URL`
+and prints one summary line on stdout:
+
+    source=<id> status=<status> inserted=N updated=N unchanged=N failed=N run=<run id|dry-run> duration=<d>
+
+Real output, first run, repeat run, and a dry run on an empty database:
+
+    $ importer run --source ons-l55o --dry-run
+    source=ons-l55o status=succeeded inserted=0 updated=0 unchanged=0 failed=0 run=dry-run duration=11ms
+    $ importer run --source ons-l55o
+    source=ons-l55o status=succeeded inserted=642 updated=0 unchanged=0 failed=0 run=1 duration=59ms
+    $ importer run --source ons-l55o
+    source=ons-l55o status=succeeded inserted=0 updated=0 unchanged=642 failed=0 run=2 duration=59ms
+
+| Exit | Meaning |
+|---|---|
+| 0 | run succeeded |
+| 1 | run `failed` or `aborted` (summary still printed on stdout, error on stderr), unknown source, invalid stored config, database error |
+| 2 | usage error: missing `--source`, missing `DATABASE_URL`, missing/empty token env var, unknown flag |
+| 3 | another run of the source holds the lock (already running) |
+
+    $ importer run                       -> usage: importer run --source <id> [--dry-run]   (exit 2)
+    $ importer run --source nope         -> importer run: source "nope": not found           (exit 1)
+    $ env -u DATABASE_URL importer run --source ons-l55o
+    importer run: DATABASE_URL is not set                                                    (exit 2)
+
+**Difference to `migrate`:** `importer migrate` exits **1** when `DATABASE_URL` is missing (older behaviour, kept); the
+newer commands (`sources apply`, `run`) exit **2**.
+
+A real (non-dry) run first sweeps abandoned runs: `running` runs whose source lock is no longer held are marked
+`failed` with error `abandoned (process died)` and a line `importer run: marked N abandoned run(s) failed: [ids]` goes
+to stderr (real output after inserting a stale `running` row: `importer run: marked 1 abandoned run(s) failed: [3]`).
+`--dry-run` does not sweep. Details: [design](design.md#9-failure-handling).
+
+**Secrets.** A source config holds env var **names** only (`auth: {type: bearer|api_key, token_env: NAME, header: H}`);
+there is no key for a literal secret, and unknown keys are rejected. `run` reads the variable when it starts, adds the
+header only to requests to the source's own host (a redirect to another host gets no token), and never stores or prints
+the value. File locations send no HTTP request, so `auth` is not used for them. If the variable is unset or empty,
+`run` exits 2 naming the variable.
+
+**Known limitations** (listed in the [roadmap](roadmap.md#hardening-backlog)):
+- `--dry-run` prints `inserted=0 updated=0 unchanged=0` and no total, which can mislead: it parses and reports but writes nothing.
+- Files in `--dir` have no size cap.
+- A YAML error on a garbage file may echo a snippet of its content.
+- That a redirect does not leak the token is covered by a unit test only.
 
 ### `importer mapping validate`
 Parses a mapping file (strict YAML) and checks it against the canonical schema; no database needed. Issue codes are

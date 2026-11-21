@@ -4,7 +4,7 @@ A configurable import pipeline that pulls data from **CSV files**, **Excel workb
 differs per setup, lands it in **Postgres** exactly as received, and serves it through a **gRPC API**
 that applies a per-source mapping to present a stable, typed shape.
 
-> Status: **scaffold**. Only `version` and `help` work; the other subcommands are planned. Start with [docs/design.md](docs/design.md).
+> Status: **early**. `migrate`, `mapping validate`, `sources apply` and `run` (CSV sources) work; `serve` is planned. Start with [docs/design.md](docs/design.md).
 
 ## Approach in one paragraph
 
@@ -32,6 +32,32 @@ at read time, so fixing a mapping never requires a re-import and no source data 
 | [docs/parked/](docs/parked) | Ideas deferred for now (MCP source) |
 | [docs/adr/](docs/adr) | Architecture decision records |
 | [docs/examples/](docs/examples) | Sample source configs |
+
+## Usage
+
+Register a source and its mapping from files, then import. Needs `DATABASE_URL`; the CLI reference, exit codes and
+the secrets rule are in [docs/operations.md](docs/operations.md#cli). This block builds the binary, points the ONS
+example at the fixture and runs it (real output on an empty database):
+
+<!-- verify: db -->
+```bash
+D=$(mktemp -d)
+go build -o "$D/importer" ./cmd/importer
+cp docs/examples/ons-l55o.mapping.yaml "$D/"
+sed "s#^location:.*#location: $PWD/testdata/ons/l55o.csv#" docs/examples/ons-l55o.source.yaml > "$D/ons-l55o.source.yaml"
+"$D/importer" migrate up
+"$D/importer" sources apply --dir "$D"          # or set SOURCES_DIR
+"$D/importer" run --source ons-l55o --dry-run   # parses and reports, writes nothing
+"$D/importer" run --source ons-l55o
+rm -r "$D"
+```
+
+    version 1
+    ons-l55o: source created, mapping v1 created
+    source=ons-l55o status=succeeded inserted=0 updated=0 unchanged=0 failed=0 run=dry-run duration=11ms
+    source=ons-l55o status=succeeded inserted=642 updated=0 unchanged=0 failed=0 run=1 duration=59ms
+
+Exit codes of `run`: 0 ok, 1 failed or aborted, 2 usage error, 3 already running.
 
 ## Planned stack
 
@@ -66,4 +92,4 @@ Test database: `eval "$(scripts/testdb.sh start)"` starts Postgres 16 in a temp 
 `DATABASE_URL` and `TESTDB_DIR`. `scripts/testdb.sh stop` stops it and deletes the directory; both are idempotent.
 Tests get a fresh database each via `internal/testutil`. Without `DATABASE_URL` DB tests skip; with
 `CI_REQUIRE_DB=1` they fail instead. Apply the schema with `importer migrate up|down|version` (needs `DATABASE_URL`; `down` rolls back one step;
-see `docs/operations.md`). Planned subcommands (`serve`, `run`, `mapping`) exit 1 with "not implemented"; unknown ones exit 2. `scripts/validate.sh` runs the full gate.
+see `docs/operations.md`). The planned subcommand `serve` exits 1 with "not implemented"; unknown ones exit 2. `scripts/validate.sh` runs the full gate.

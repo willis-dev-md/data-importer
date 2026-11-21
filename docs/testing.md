@@ -29,4 +29,4 @@ and keys. A test that terminated other packages' lock sessions caused a flaky 60
 - **Test database:** `scripts/testdb.sh start|stop` runs an ephemeral Postgres 16 (as `postgres` via `runuser` when root); state is kept in `/tmp/data-importer-testdb.<uid>.state`. `internal/testutil` offers `DatabaseURL`, `NewDatabaseURL` (fresh database per test) and `DB` (pgx pool). Tests skip when `DATABASE_URL` is unset, but FAIL when `CI_REQUIRE_DB=1` (used by `scripts/validate.sh`).
 - **Tool pins:** staticcheck v0.6.1 and buf v1.57.0, because the latest releases need Go 1.26 and the project uses Go 1.24.7 (`go 1.24.0` + `toolchain go1.24.7` in `go.mod`). Raise the pins when the Go version is raised.
 - **Dependencies:** only `github.com/jackc/pgx/v5` has been added so far.
-- **CLI stubs:** planned subcommands exit 1 with "not implemented"; unknown subcommands exit 2.
+- **CLI stubs:** the planned `serve` subcommand exits 1 with "not implemented"; unknown subcommands exit 2.

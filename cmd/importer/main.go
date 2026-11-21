@@ -21,7 +21,8 @@ const usage = `usage: importer <command> [args]
 commands:
   migrate   apply database migrations: migrate up|down|version
   serve     run the gRPC server and scheduler (planned)
-  run       run one import for a source (planned)
+  run       run one import: run --source <id> [--dry-run]
+  sources   sources apply [--dir <dir>] [--schema canonical-schema.yaml]
   mapping   mapping validate [--schema canonical-schema.yaml] <file>
   version   print the version
   help      print this help
@@ -41,10 +42,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, version)
 		return 0
 	case "migrate":
-		return runMigrate(args[1:], os.Getenv("DATABASE_URL"), stdout, stderr)
+		return runMigrate(args[1:], getenv("DATABASE_URL"), stdout, stderr)
 	case "mapping":
 		return runMapping(args[1:], stdout, stderr)
-	case "serve", "run":
+	case "sources":
+		return runSources(args[1:], stdout, stderr)
+	case "run":
+		return runImport(args[1:], stdout, stderr)
+	case "serve":
 		fmt.Fprintf(stderr, "importer: %q is not implemented yet\n", args[0])
 		return 1
 	default:

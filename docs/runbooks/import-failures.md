@@ -1,21 +1,23 @@
 # Runbook: Import runs that failed, aborted, were cancelled, or are stuck
 
 **Owner role:** on-call engineer  |  **Severity if this happens:** medium (stale data for one source; other sources are unaffected)
-**Last verified:** 2026-11-21, task 008 (`importer.Run` driven against a throwaway Postgres 16 from `scripts/testdb.sh` on `testdata/ons/l55o.csv` for every scenario below; every SQL statement and error text here is real output; CLI steps are UNVERIFIED)
+**Last verified:** 2026-11-21, task 009 (real `bin/importer run` against a throwaway Postgres 16 from `scripts/testdb.sh` on `testdata/ons/l55o.csv`: exit codes, `already running` (exit 3), the abandoned-run sweep; the other scenarios were run through `importer.Run` in task 008; every SQL statement and error text here is real output)
 
 ## When to use
-An import ended in status `failed` or `aborted`, `importer.Run` returned `import already running for this source`, a run row stays `running`, or you need to see which rows a run rejected.
+An import ended in status `failed` or `aborted`, `importer run` exited non-zero (see exit codes), `importer.Run` returned `import already running for this source`, a run row stays `running`, or you need to see which rows a run rejected.
 
 ## Prerequisites
 `psql` on PATH and `DATABASE_URL` in the environment (see [database-migrations.md](database-migrations.md); never paste the URL into tickets). Read access to the tables `import_runs`, `import_errors`, `raw_records`.
-CLI: UNVERIFIED / future. There is no `importer run` yet (planned in task 009), so imports are started from code that calls `importer.Run`. Everything below is database-level and was run. Where a step says "re-run the import", use whatever starts it in your deployment (task 009: `importer run <source>`, UNVERIFIED).
+Imports are started with `bin/importer run --source <id>` (see [add-a-source.md](add-a-source.md)). "Re-run the import" below means that command.
+
+**Exit codes of `importer run`:** 0 succeeded; 1 `failed`/`aborted`, unknown source, DB error (summary line on stdout, error on stderr); 2 usage (missing `--source`, `DATABASE_URL` or a `token_env` variable); 3 already running.
 
 ## How a run is recorded
 One row in `import_runs` per run that got past the lock. `status` is one of:
 
 | status | meaning |
 |---|---|
-| `running` | in progress, or abandoned (see "Run stays `running` forever") |
+| `running` | in progress, or abandoned (see "Run stays `running` after a crash") |
 | `succeeded` | stream read to the end; `failed` rows (if any) were within `max_error_ratio` |
 | `aborted` | stream read to the end but `failed / total` was above `max_error_ratio`; `error` says why |
 | `failed` | open/read/write error, cancellation or panic; `error` has the text |
@@ -45,7 +47,7 @@ All error texts are the real `import_runs.error` / returned error. The returned 
 
 | Symptom (exact message) | Diagnosis | Fix |
 |---|---|---|
-| `import "ons-ok": import already running for this source` (no run id, no `import_runs` row created) | Another session holds the source's advisory lock: a live import (scheduler or another operator). Confirm with the lock query below. This is NOT a database error. | Wait for the other run to finish (step 3 shows it) and re-run. Do not kill it. If step 3 shows no live run and the lock query shows no holder, see "Run stays `running`". Other sources are not blocked (lock is per source). |
+| `importer run: import "ons-l55o": import already running for this source` (exit 3; library text `import "ons-ok": import already running for this source`; no run id, no `import_runs` row created) | Another session holds the source's advisory lock: a live import (scheduler or another operator). Confirm with the lock query below. This is NOT a database error. | Wait for the other run to finish (step 3 shows it) and re-run. Do not kill it. If step 3 shows no live run and the lock query shows no holder, see "Run stays `running`". Other sources are not blocked (lock is per source). |
 | An error starting `import "<source>": advisory lock for "<source>": acquire connection: ...` or other connection text, no `already running` | The attempt to lock failed (database down, pool closed, context cancelled). It says nothing about who holds the lock, and no run row exists. | Fix database connectivity (`psql "$DATABASE_URL" -c 'select 1'`), then re-run. Nothing was written. |
 | status `aborted`, `error` = `import aborted: 20 of 662 rows failed, above max_error_ratio 0.01` | Rejects exceed the source's `max_error_ratio` (config, default per source; `0` means any reject aborts; equal to the ratio is fine). Look at the rejects: step 2. | Fix the cause (bad source rows, wrong `csv.columns`/delimiter: runbook source-layout-changed is planned) or raise `max_error_ratio` in the source config after reviewing the rows, then re-run. See "What an aborted run leaves behind". |
 | status `succeeded` but `failed > 0` | Rejects were within `max_error_ratio`; the good rows were imported. Not an incident. | Read step 2; fix the source if the rejects matter. |
@@ -53,7 +55,8 @@ All error texts are the real `import_runs.error` / returned error. The returned 
 | status `failed`, `error` starts `read source: ` or `write batch: ` | Mid-stream read error, or the database rejected a batch. The batch parsed so far is flushed (read errors) and stays; later rows are missing. | Read the rest of the text, fix the cause (file truncated, database full or down), re-run (idempotent). |
 | status `failed`, `error` = `cancelled: read source: context canceled` | The caller's context was cancelled (shutdown, Ctrl-C, timeout) while streaming. The row is still closed and the lock released. Rows of batches already flushed stay. | Re-run. If cancellations repeat, find who cancels (deadline too short for the source size). |
 | status `failed`, `error` = `panic: boom from adapter` (the text after `panic: ` is the panic value) | A bug in an adapter. The run row is closed as `failed`, the lock released, then the panic continues in the caller (the process may crash: expected). | Not fixable by an operator: collect the run id, the `error` text and the process log (has the stack trace) and escalate. |
-| A run row stays `running` after the process is gone | Hard kill / OOM / host loss: nothing could close the row. Known limitation until the abandoned-run sweep of task 009. | See "Run stays `running` forever". |
+| A run row stays `running` after the process is gone | Hard kill / OOM / host loss: nothing could close the row. | Usually nothing: the next real `importer run` sweeps it (stderr `importer run: marked 1 abandoned run(s) failed: [7]`). See "Run stays `running` after a crash". |
+| exit 1 with a summary line `status=failed ... run=6` and `importer run: import "demo-api" run 6: open source: fetch ...` | A run row exists and is `failed`; the stderr text is `import_runs.error` | Match the `error` text in this table |
 | Rejects with reason `string contains a NUL byte (\u0000) at $.<field>; not storable as jsonb` | A source value holds a NUL byte. Only that record is rejected (raw = natural key); the batch and run continue. The value is never silently altered. | Clean the value at the source, or accept the reject (counted toward `max_error_ratio`). UNVERIFIED here: covered by the task's unit test, not reproduced by hand. |
 
 ### Is the source lock held? (read-only, safe)
@@ -71,16 +74,17 @@ Chunks are committed as the stream goes (500 records each by default), not in on
 4. Re-running is idempotent: the second run of the same aborted source gave `inserted=0 updated=0 unchanged=642 failed=20`, still `aborted`, with no duplicate rows (642 rows total) and `last_run_id` moved to the new run. Unchanged rows keep their payload and `imported_at`.
 5. A cancelled run before its first batch (run 6 above, cancelled after 99 rows) wrote 0 rows.
 
-## Run stays `running` forever (known limitation)
-After `kill -9`, OOM or host loss the row is never closed, and `finished_at` stays NULL. Task 009 adds an abandoned-run sweep; until then:
-1. Find candidates with step 3 (old `age`, and no importer process still running on any host).
-2. Confirm no live import holds that source's lock: run the lock query above. A killed process's session is gone, so the result must be **0 rows**. If a row appears, a live process (or a hung connection) still holds it: do NOT edit the run; find the `pid` (`SELECT pid, client_addr, state FROM pg_stat_activity WHERE pid = <pid>`) and escalate.
-3. Mark it failed by hand (the `status = 'running'` guard makes it a no-op if the run was closed meanwhile):
+## Run stays `running` after a crash
+After `kill -9`, OOM or host loss the row is never closed by the dead process. The next real (not `--dry-run`) `importer run` (any source) first marks the `running` rows whose source lock is NOT held as `failed`, sets `finished_at`, and writes error `abandoned (process died)`. A live run (lock held) is never touched; its stale-looking row is left until that run ends.
+1. Find candidates (step 3: old `age`).
+2. Run the import for the same source (the sweep is database-wide per the task log; only the same-source case was run); stderr shows what was swept. Real run: a stale row (id 7, started 2 hours ago) was closed by the next run: `importer run: marked 1 abandoned run(s) failed: [7]`, then `SELECT id, status, error FROM import_runs WHERE id = 7` gave `failed` / `abandoned (process died)`. A `--dry-run` does not sweep (row stayed `running`).
+3. While another process held that source's lock, `importer run` exited 3 and the stale row stayed `running` (also real); after the holder ended, the next run swept it.
+4. Fallback, only if no further run will happen soon: confirm with the lock query above that it returns **0 rows** (if a row appears a live process holds it: do NOT edit; escalate), then close by hand (the guard makes it a no-op if already closed):
    ```
-   psql "$DATABASE_URL" -c "UPDATE import_runs SET status = 'failed', finished_at = now(), error = 'abandoned: process killed, marked failed by hand' WHERE id = 8 AND status = 'running' RETURNING id, status, finished_at, error"
+   psql "$DATABASE_URL" -c "UPDATE import_runs SET status = 'failed', finished_at = now(), error = 'abandoned (process died)' WHERE id = 8 AND status = 'running' RETURNING id, status, finished_at, error"
    ```
-   *(real: one row returned with `status` `failed`; run again: `UPDATE 0`)*
-4. Re-run the import. Rows the dead run had already flushed are valid; re-running is idempotent. Counts on the hand-closed row stay 0 (they were never saved).
+   *(hand-close form run in task 008 with a different error text: one row returned, repeat gave `UPDATE 0`)*
+5. Rows the dead run had flushed are valid; re-running is idempotent. Counts on the closed row stay 0 (never saved).
 
 ## Verify
 1. Step 1 shows the new run `succeeded` (or `unchanged`-only counts for a re-run) with `finished_at` set.

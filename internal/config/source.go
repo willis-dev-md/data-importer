@@ -34,6 +34,7 @@ type Source struct {
 	Schedule        *Schedule `yaml:"schedule,omitempty"`
 	ChangeDetection []string  `yaml:"change_detection,omitempty"`
 	Enabled         *bool     `yaml:"enabled,omitempty"`
+	Auth            *Auth     `yaml:"auth,omitempty"`
 }
 
 // CSV holds the options of a csv source.
@@ -160,6 +161,9 @@ func (s *Source) Validate() error {
 	}
 	if len(s.NaturalKey) == 0 {
 		bad("natural_key", "at least one field required")
+	}
+	if s.Auth != nil {
+		s.Auth.validate(bad)
 	}
 	if s.Kind == KindCSV {
 		s.validateCSV(bad)

@@ -30,5 +30,5 @@ docs/api.md (as generated); docs/operations.md (GRPC_ADDR, TLS vars, shutdown); 
 docs/runbooks/run-the-grpc-server.md (start, health, reflection, TLS, graceful shutdown)
 
 ## Status
-pending
+in-progress
 ## Log

@@ -119,7 +119,7 @@ whole run unless `max_error_ratio` is exceeded.
   (`aborted` wraps `importer.ErrAborted`); check `RunResult.Status`.
 - **Source config:** `ConfigJSON` / `ParseConfigJSON` convert a validated source config to and from the JSON in
   `sources.config`. It holds env var names only, never secrets.
-- **Known limitation:** a hard kill or OOM leaves the run in `running`; an abandoned-run sweep is planned (task 009).
+- **Hard kill:** a hard kill or OOM leaves the run in `running`; `store.SweepAbandonedRuns` closes it (see Failure handling).
 
 ### Read
 1. Client calls `ListRecords(source, filter, page)`.
@@ -185,7 +185,7 @@ Read-time mapping and JSONB filtering are fine for moderate volume. Escape hatch
 
 ## 9. Failure handling
 
-- Runs are resumable per chunk; a crashed run is marked `failed` by a startup reaper (planned, task 009; until then a hard-killed run stays `running`).
+- Runs are resumable per chunk; a run killed without cleanup is marked `failed` with error `abandoned (process died)` by `store.SweepAbandonedRuns`, called at the start of every real `importer run` (not in `--dry-run`; the future server calls it at start). It only touches `running` runs whose source advisory lock is not held by any live session, so a live run is never swept; a stale row of a source that has a live run right now stays until that run ends.
 - Upserts are idempotent, so retries are safe.
 - API sources: retry with exponential backoff and jitter, honour `Retry-After`, per-source rate limit.
 - `max_error_ratio` aborts before committing a mostly-bad file (chunks already committed are tagged with

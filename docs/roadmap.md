@@ -26,3 +26,10 @@ Data sources beyond the first slice (tasks 013 to 017): BoE base rate (013), UK 
 occupation (017); see `docs/sources/`.
 
 Parked (not in v1): [MCP server source](parked/mcp-source.md).
+
+## Hardening backlog
+Known limitations of the task 009 CLI, left as future work:
+- `importer run --dry-run` prints `inserted=0 updated=0 unchanged=0` and no total; it parses and reports but writes nothing, so the zeros are not a count of what a real run would do.
+- Files in `sources apply --dir` have no size cap.
+- A YAML parse error on a garbage file may echo a snippet of its content.
+- That a redirect to another host does not receive the auth token is covered by a unit test only, not by an end-to-end test.

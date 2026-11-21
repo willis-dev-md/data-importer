@@ -112,10 +112,15 @@ Decisions (task 003):
 - **Advisory lock** (`store.TryAdvisoryLock`): session-level `pg_try_advisory_lock(hashtextextended('data-importer:source:'||id, 0))` on a dedicated pooled connection; released by `unlock()` or by Postgres when the connection is lost. It returns `(unlock, ok, err)`: `err != nil` means the attempt failed (database down, closed pool) and says nothing about who holds the lock; `ok = false` with a nil error means it is held elsewhere; `unlock` is never nil and is safe to call more than once.
 
 Decisions (task 008):
-- **Run lifecycle** (`importer.Run`): a real run inserts `import_runs(status=running)` and always closes it with `succeeded`, `failed` or `aborted`, counts, `shape`, `source_meta` and `error`. `unchanged_file` is not written yet (task 014). A hard kill/OOM leaves `running` (abandoned-run sweep: task 009).
+- **Run lifecycle** (`importer.Run`): a real run inserts `import_runs(status=running)` and always closes it with `succeeded`, `failed` or `aborted`, counts, `shape`, `source_meta` and `error`. `unchanged_file` is not written yet (task 014). A hard kill/OOM leaves `running` until the sweep below.
 - **Counts:** `inserted`/`updated`/`unchanged` come from `UpsertRaw`; `failed` is the number of rows written to `import_errors` (adapter row errors, empty natural key, NUL byte in a string). Failed rows never reach `raw_records`.
 - **`shape`:** JSON object `field -> {type -> count}` over top-level fields of accepted records, types `string`, `number`, `boolean`, `null`, `object`, `array`; fields starting with `_` are excluded. Example: `{"value":{"string":642}}`.
 - **`source_meta`:** the adapter's preamble metadata as JSON; null when the source has none.
 - **`sources.config`:** the validated source config as JSON (`importer.ConfigJSON`), read back with `ParseConfigJSON`; env var names only, no secrets.
 - **NUL bytes:** jsonb rejects `\u0000`, so a record with one in any string value or key is recorded as a row error rather than altered or failing the batch.
 - **Abort:** batches committed before a `max_error_ratio` abort stay in `raw_records` with `first_run_id`/`last_run_id` set to the run id.
+
+Decisions (task 009):
+- **Mapping versions** (`store.Apply`, used by `importer sources apply`): `mappings.spec` is the file's YAML converted to JSON as written; its `version:` key is ignored and the stored `version` key is the storage version (max + 1). A new version is written only when the content differs from the ACTIVE version, ignoring `version`, key order, number form and comments; the new version is then activated (`sources.active_mapping_version`). Going back to older content creates a new version. `created_by` is `cli`. The whole apply is one transaction.
+- **Unchanged re-apply writes nothing:** the source upsert only updates when `kind` or `config` differ, so row versions (`xmin`) of unchanged sources and mappings do not move.
+- **Abandoned-run sweep** (`store.SweepAbandonedRuns`): one UPDATE that sets `status='failed'`, `finished_at=now()`, `error='abandoned (process died)'` on `running` runs whose source advisory lock (same key as `TryAdvisoryLock`, looked up in `pg_locks` for the current database) is not held. Called at the start of a real `importer run`; dry runs do not sweep. A live run is never touched.
