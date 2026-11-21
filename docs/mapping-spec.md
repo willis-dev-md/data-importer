@@ -44,6 +44,25 @@ missing_policy: keep      # keep | tombstone
 max_error_ratio: 0.05
 ```
 
+#### Implemented behaviour (task 004)
+
+- **Strict config:** YAML is decoded strictly. Unknown keys are errors and validation errors name the field path
+  (e.g. `csv.delimiter`). Only `kind: csv` validates today. `csv.preamble` is rejected as an unknown key until task 005,
+  so [examples/ons-l55o.source.yaml](examples/ons-l55o.source.yaml) does not load yet.
+- **Options:** `delimiter` is one character (`tab` or `\t` for a tab). `encoding` is `utf-8` (default, BOM stripped),
+  `windows-1252`, `utf-16`/`utf-16le` (BOM honoured, little-endian by default) or `utf-16be`. `natural_key` fields must be columns.
+- **Fetch:** `location` is a local path, `file://` or `https://`; plain `http://` is rejected. Defaults: 256 MB size
+  limit, 5 minute timeout (whole fetch, body included), a `User-Agent` is sent. The SHA-256 of the bytes read is recorded.
+- **Parsing:** an own row scanner is used instead of `encoding/csv`, so `RowError.Raw` and line numbers are exact.
+  Blank lines are skipped. A row with the wrong field count, a bad quote or an empty natural key field yields a recorded
+  `RowError` (line number and raw text) and the stream continues. A row over 16 MiB is a fatal stream error.
+
+Known limitations:
+- An unterminated quote produces one `RowError` that swallows the rest of the file.
+- CRLF inside a multi-line quoted field is normalised to LF, so `Raw` is not byte-exact there.
+- A lone CR is not a line end.
+- Redirects from `https` to `http` are currently followed (to be refused in task 015).
+
 ### CSV with a metadata preamble and no header row
 
 Some publishers (e.g. the ONS, see [sources/ons-l55o.md](sources/ons-l55o.md)) put `key,value` metadata lines

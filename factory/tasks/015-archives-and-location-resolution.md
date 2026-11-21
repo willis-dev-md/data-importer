@@ -21,6 +21,7 @@ Other archive formats (tar, 7z), scraping landing pages for links (explicitly no
 - [ ] `resolve: {<name>: {kind: month, layout, start, back}}`: generates candidates newest first (`start: "-1m"` is one month before now, `back: 6` gives six candidates), substitutes `{name}` in `location`, probes with HEAD (falling back to a ranged GET when HEAD is not allowed), and uses the first that returns 200. A fake clock is injected. Tests: newest candidate exists; only an older one exists; none exist (error lists all URLs tried); a 5xx on a candidate is an error, not a "not found".
 - [ ] The chosen URL is stored on the run (`import_runs.source_meta._location`) and shown by `importer run`.
 - [ ] Group templating (`{year}{status}`) and `resolve` placeholders coexist: unresolved `{...}` placeholders left in a location after expansion fail validation.
+- [ ] Fetching refuses a redirect from `https://` to `http://` (downgrade), with a clear error and a test (found as a note in task 004's validation; the task 004 fetcher currently follows it).
 - [ ] `scripts/validate.sh` passes.
 
 ## Docs impact

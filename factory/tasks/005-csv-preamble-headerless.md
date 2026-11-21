@@ -31,5 +31,5 @@ docs/mapping-spec.md (preamble / headerless / @meta key); docs/sources/ons-l55o.
 none: library-level; the ONS source failure modes are documented in the task 012 smoke-test runbook
 
 ## Status
-pending
+in-progress
 ## Log
