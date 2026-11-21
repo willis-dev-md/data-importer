@@ -82,9 +82,11 @@ recomputes `next_run_at` immediately. A source can be paused with `enabled: fals
 2. Load source config; create `import_runs(status=running)`.
 2a. **Change detection:** conditional fetch (ETag / Last-Modified) and SHA-256 of the file; if identical to the
     last successful run's file, close the run as `unchanged_file` without parsing.
-3. Adapter yields records; for each compute `natural_key` and `content_hash`.
-4. Upsert `raw_records` on `(source_id, natural_key)`; skip write when `content_hash` unchanged
-   (counts as `unchanged`).
+3. Adapter yields records; for each compute `natural_key` (JSON array of key parts) and `content_hash`
+   (SHA-256 of canonical JSON); see [data-model](data-model.md#decisions-task-003).
+4. Upsert `raw_records` on `(source_id, natural_key)` (`store.UpsertRaw`); when `content_hash` is unchanged the
+   payload is not rewritten, only `last_run_id` is set (counts as `unchanged`). Duplicate keys in a batch: last wins.
+   A per-source advisory lock (`store.TryAdvisoryLock`) keeps two runs of one source from overlapping.
 5. Track field names/types seen (shape summary) on the run.
 6. Optional `missing_policy: tombstone`: after a **complete** run, mark rows not seen as `deleted_at = now()`.
 7. Close run with counts (`inserted`, `updated`, `unchanged`, `failed`, `tombstoned`) and status.

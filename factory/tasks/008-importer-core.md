@@ -18,6 +18,8 @@ Tombstoning (`missing_policy: tombstone`), rollback command, scheduler, file ret
 ## Acceptance criteria (each must be checkable)
 - [ ] `importer.Run(ctx, Deps{Store, Adapters}, sourceID, Options{Trigger, DryRun}) (RunResult, error)`: takes the per-source advisory lock (a second concurrent run returns `ErrAlreadyRunning` and creates no run row), creates the `import_runs` row, streams records in batches (default 500, configurable), upserts, and finishes the run with counts, `shape` and `source_meta` (from `Stream.Meta()`).
 - [ ] `shape` records, per field name, the observed value types and counts (e.g. `{"value":{"string":642},"period":{"string":642}}`), excluding `_`-prefixed keys. Unit-tested.
+- [ ] `TryAdvisoryLock` errors are NOT treated as "already running": `ErrAlreadyRunning` only when the lock is held (ok=false, err=nil); a database error fails the call with that error (tested with a failing store).
+- [ ] Records whose strings contain a NUL byte (`\u0000`, which jsonb rejects and would fail a whole batch) are handled per record: sanitised or recorded as a `RowError`, never failing the batch (tested; from task 003 validator note).
 - [ ] `RowError`s are written to `import_errors` (position, raw, reason) and counted in `failed`; they do not abort the run.
 - [ ] `max_error_ratio`: when failed/total exceeds it after the stream ends, status is `aborted` with an explanatory `error`; chunks already committed remain tagged with the run id (documented). A ratio of `0` means any error aborts. Tested at the boundary (equal is OK, above aborts).
 - [ ] An adapter/IO error mid-stream gives status `failed`, `error` set, `finished_at` set, and no panic; the lock is always released (test with a failing stream).
