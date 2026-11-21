@@ -21,7 +21,7 @@ func TestRun(t *testing.T) {
 		{"no args prints usage", nil, 0, "migrate serve run mapping", ""},
 		{"help", []string{"help"}, 0, "usage: importer", ""},
 		{"version", []string{"version"}, 0, version, ""},
-		{"planned command not implemented", []string{"serve"}, 1, "", "not implemented"},
+		{"serve rejects extra args", []string{"serve", "x"}, 2, "", "usage: importer serve"},
 		{"unknown exits 2", []string{"bogus"}, 2, "", "unknown command"},
 	}
 	for _, tt := range tests {

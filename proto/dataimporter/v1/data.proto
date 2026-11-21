@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package dataimporter.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/willis-dev-md/data-importer/gen/dataimporter/v1;dataimporterv1";
+
+// DataService serves imported records with the source's mapping applied on read.
+service DataService {
+  // GetRecord returns one record by id.
+  rpc GetRecord(GetRecordRequest) returns (Record);
+  // ListRecords returns a keyset-paginated page of records.
+  rpc ListRecords(ListRecordsRequest) returns (ListRecordsResponse);
+}
+
+// Record is one imported row with the mapping applied.
+message Record {
+  string id = 1;
+  string source_id = 2;
+  // fields holds the canonical (mapped) values.
+  google.protobuf.Struct fields = 3;
+  // extra holds source columns that the mapping does not map.
+  google.protobuf.Struct extra = 4;
+  repeated FieldError mapping_errors = 5;
+  google.protobuf.Timestamp imported_at = 6;
+}
+
+// FieldError describes a field that could not be mapped.
+message FieldError {
+  string field = 1;
+  string message = 2;
+}
+
+// FilterOp is a comparison operator for a Filter.
+enum FilterOp {
+  FILTER_OP_UNSPECIFIED = 0;
+  FILTER_OP_EQ = 1;
+  FILTER_OP_NEQ = 2;
+  FILTER_OP_GT = 3;
+  FILTER_OP_GTE = 4;
+  FILTER_OP_LT = 5;
+  FILTER_OP_LTE = 6;
+  FILTER_OP_CONTAINS = 7;
+  FILTER_OP_IN = 8;
+}
+
+// Filter restricts a list to records whose canonical field matches.
+message Filter {
+  string field = 1;
+  FilterOp op = 2;
+  google.protobuf.Value value = 3;
+}
+
+// Sort orders a list by a canonical field.
+message Sort {
+  string field = 1;
+  bool descending = 2;
+}
+
+message GetRecordRequest {
+  string source_id = 1;
+  string id = 2;
+}
+
+message ListRecordsRequest {
+  string source_id = 1;
+  // group_id is an alternative to source_id: query across a group's members.
+  string group_id = 7;
+  repeated Filter filters = 2;
+  repeated Sort sort = 3;
+  // page_size defaults to 50, maximum 1000.
+  int32 page_size = 4;
+  // page_token is an opaque keyset cursor.
+  string page_token = 5;
+  bool include_deleted = 6;
+}
+
+message ListRecordsResponse {
+  repeated Record records = 1;
+  // next_page_token is empty when there are no more records.
+  string next_page_token = 2;
+}

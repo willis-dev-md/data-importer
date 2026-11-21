@@ -20,7 +20,7 @@ const usage = `usage: importer <command> [args]
 
 commands:
   migrate   apply database migrations: migrate up|down|version
-  serve     run the gRPC server and scheduler (planned)
+  serve     run the gRPC server (GRPC_ADDR, TLS_CERT_FILE, TLS_KEY_FILE)
   run       run one import: run --source <id> [--dry-run]
   sources   sources apply [--dir <dir>] [--schema canonical-schema.yaml]
   mapping   mapping validate [--schema canonical-schema.yaml] <file>
@@ -50,8 +50,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "run":
 		return runImport(args[1:], stdout, stderr)
 	case "serve":
-		fmt.Fprintf(stderr, "importer: %q is not implemented yet\n", args[0])
-		return 1
+		return runServe(args[1:], stderr)
 	default:
 		fmt.Fprintf(stderr, "importer: unknown command %q\n\n%s", args[0], usage)
 		return 2

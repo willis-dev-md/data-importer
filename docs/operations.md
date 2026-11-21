@@ -4,8 +4,8 @@
 | Var | Purpose |
 |---|---|
 | `DATABASE_URL` | Postgres DSN |
-| `GRPC_ADDR` | listen address, default `:8443` |
-| `TLS_CERT_FILE` / `TLS_KEY_FILE` | server TLS |
+| `GRPC_ADDR` | listen address, default `:8443` (all interfaces) |
+| `TLS_CERT_FILE` / `TLS_KEY_FILE` | server TLS; set both or neither (see [`importer serve`](#importer-serve)) |
 | `AUTH_TOKENS_FILE` | token -> roles/sources map |
 | `IMPORT_CONCURRENCY` | max simultaneous import runs (default 4) |
 | `SOURCES_DIR` | directory of source + mapping YAML; default for `importer sources apply --dir` |
@@ -127,6 +127,74 @@ the value. File locations send no HTTP request, so `auth` is not used for them. 
 - A YAML error on a garbage file may echo a snippet of its content.
 - That a redirect does not leak the token is covered by a unit test only.
 
+### `importer serve`
+Runs the gRPC server (`dataimporter.v1.DataService`, `grpc.health.v1`, reflection) until SIGINT or SIGTERM. Takes no
+arguments (`importer serve extra` prints `usage: importer serve`, exit 2). Needs `DATABASE_URL`. All `DataService`
+methods return `Unimplemented` until task 011 ([api](api.md)).
+
+| Var | Effect |
+|---|---|
+| `GRPC_ADDR` | listen address, default `:8443` |
+| `DATABASE_URL` | Postgres DSN; pinged for health |
+| `TLS_CERT_FILE`, `TLS_KEY_FILE` | both set: serve TLS (minimum TLS 1.2); neither set: plaintext; only one: error |
+
+Startup errors (all exit 1, real output):
+
+    importer serve: DATABASE_URL is not set
+    importer serve: TLS_CERT_FILE is set but TLS_KEY_FILE is not: set both or neither
+    importer serve: TLS_KEY_FILE is set but TLS_CERT_FILE is not: set both or neither
+    importer serve: load TLS key pair: open /x: no such file or directory
+    importer serve: listen tcp 127.0.0.1:18443: bind: address already in use
+
+Without TLS the server logs a warning, here with the default address (the listener reports all interfaces):
+
+    time=2026-11-21T07:26:43.576Z level=WARN msg="TLS_CERT_FILE and TLS_KEY_FILE are not set: serving plaintext gRPC" addr=0.0.0.0:8443
+
+**Security.** By default the server speaks **plaintext gRPC on all interfaces** and has no authentication. TLS
+enforcement and the auth interceptor are planned for the hardening milestone (M8); do not expose the port publicly
+before then.
+
+**Health** (`grpc.health.v1`, service names `""` and `dataimporter.v1.DataService`):
+- The status is `NOT_SERVING` until the first database ping succeeds; that first ping runs before the server accepts calls.
+- If the database is unreachable at startup the server still starts, logs `health check failed` and reports `NOT_SERVING`.
+- The database is pinged every 5 s (5 s timeout per ping). Verified with a real Postgres: `SERVING`, then `NOT_SERVING`
+  after the database was stopped, then `SERVING` again after it was restarted (checked within about 6 s each time).
+  A failure is logged once when it starts, not on every ping.
+- A database failure does not stop the process; only health changes.
+
+**Reflection** is registered, so tools such as `grpcurl` can list the services (UNVERIFIED: no `grpcurl` was available;
+only registration in code was checked).
+
+**Graceful shutdown.** On SIGINT or SIGTERM the server stops health checks, sets health to `NOT_SERVING`, ends open
+`Health.Watch` streams, and lets in-flight calls finish for up to 10 s; after that it logs
+`graceful shutdown timed out; forcing stop` and cuts them off. A clean stop logs `server stopped` and exits 0 (verified
+with SIGTERM). A **second signal terminates immediately** (default signal handling is restored after the first):
+UNVERIFIED, from reading `cmd/importer/serve.go` only.
+
+Known limitations:
+- An unreadable (permission denied) certificate file was not verified: the test environment runs as root.
+- Goroutine leaks on shutdown were checked by reading the code only.
+
+### Proto workflow
+The API contract is `proto/dataimporter/v1/data.proto`; `gen/` is generated and committed. Generation is offline: `buf`
+and the plugins `protoc-gen-go` (v1.36.8) and `protoc-gen-go-grpc` (v1.5.1) run as local `go tool` dependencies, with no
+remote plugins. Config: `buf.yaml` (lint `STANDARD` minus the two rules explained in [api](api.md#implemented-task-010)),
+`buf.gen.yaml`.
+
+1. Edit `proto/`.
+2. Regenerate and lint (no output and exit 0 on success):
+
+<!-- verify -->
+```bash
+go tool buf generate && go tool buf lint
+echo "exit $?"
+```
+
+    exit 0
+
+3. Commit `gen/` with the proto change. The gate `scripts/checks.d/15-proto-generated.sh` runs `go tool buf generate` and
+   fails with `FAIL: gen/ is stale; run 'go tool buf generate' and commit the result` when `gen/` differs.
+
 ### `importer mapping validate`
 Parses a mapping file (strict YAML) and checks it against the canonical schema; no database needed. Issue codes are
 listed in [mapping-spec](mapping-spec.md#validation-on-save). Each issue is printed to stdout as `path: code: message`.
@@ -173,7 +241,7 @@ Outside `serve`, an external cron can still call `importer run`.
 - Alert on `import_last_success_age_seconds` exceeding the source's expected interval (a missed or failing schedule).
 - Prometheus metrics: `import_records_total{source,outcome}`, `import_run_duration_seconds`,
   `grpc_server_handled_total`, `mapping_errors_total{source,code}`.
-- Health: gRPC health service; `importer serve` readiness checks DB.
+- Health: gRPC health service; `importer serve` reports `SERVING` only while the database answers a ping ([details](#importer-serve)).
 
 ## Security and data protection
 - Secrets only from env/secret store. Never logged; payload logging off by default.

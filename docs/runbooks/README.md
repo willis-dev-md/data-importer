@@ -16,6 +16,7 @@ created by the task that introduces the behaviour.
 | [add-a-source.md](add-a-source.md) | register a CSV source and mapping (`sources apply`), dry-run, first real run, verify; `importer run` exit codes and CLI error messages |
 | [import-failures.md](import-failures.md) | an import run `failed`, `aborted` (max_error_ratio), `already running`, was cancelled, or is stuck `running` (abandoned-run sweep); reading `import_runs` / `import_errors`; `importer run` exit codes |
 | [mapping-validation-errors.md](mapping-validation-errors.md) | `importer mapping validate` prints issues or exits 1/2; every validation code with fix; runtime field errors (MISSING_REQUIRED, TYPE_MISMATCH, PARSE_FAILED, VALIDATION_FAILED) |
+| [run-the-grpc-server.md](run-the-grpc-server.md) | start/stop `importer serve` (plaintext, TLS), health `SERVING`/`NOT_SERVING`, reflection, graceful shutdown; startup errors; the `0.0.0.0` plaintext WARN |
 
 ## Seeds for later runbooks
 
@@ -27,5 +28,5 @@ Facts from task logs, not yet verified as operator procedures. The owning task c
   covered in import-failures.md).
 
 Planned (created by the tasks in `factory/tasks/`):
-run-the-grpc-server, demo-and-smoke-test, source-layout-changed, reparse-and-file-retention,
+demo-and-smoke-test, source-layout-changed, reparse-and-file-retention,
 source-url-not-found, uk-hpi-monthly-update, ashe-annual-release.
