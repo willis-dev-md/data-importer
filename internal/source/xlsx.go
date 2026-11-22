@@ -67,8 +67,9 @@ func (l XLSXLimits) withDefaults() XLSXLimits {
 
 // XLSXAdapter reads `kind: xlsx` sources.
 type XLSXAdapter struct {
-	Fetch  FetchOptions
-	Limits XLSXLimits
+	Fetch   FetchOptions
+	Limits  XLSXLimits
+	Archive ArchiveLimits // used when the source has `archive:`; zero values mean the defaults
 }
 
 // NewXLSX returns the xlsx adapter with the default limits.
@@ -81,27 +82,52 @@ func (a *XLSXAdapter) Open(ctx context.Context, cfg *config.Source) (Stream, err
 		return nil, errors.New("xlsx adapter: source kind is not xlsx")
 	}
 	lim := a.Limits.withDefaults()
-	fo := a.Fetch
-	if fo.MaxBytes <= 0 || fo.MaxBytes > lim.MaxFileBytes {
-		fo.MaxBytes = lim.MaxFileBytes
-	}
-	body, err := Fetch(ctx, cfg.Location, fo)
+	fo := a.FetchOptions(cfg)
+	loc, err := ResolveLocation(ctx, cfg, fo)
 	if err != nil {
 		return nil, err
 	}
-	data, err := io.ReadAll(body)
-	sum := body.SHA256()
+	body, err := Fetch(ctx, loc, fo)
+	if err != nil {
+		return nil, err
+	}
+	var in io.Reader = body
+	var m io.ReadCloser
+	if cfg.Archive != nil {
+		m, err = openArchiveMember(ctx, body, cfg.Archive, fo.MaxBytes, a.Archive)
+		if err != nil {
+			_ = body.Close()
+			return nil, err
+		}
+		in = io.LimitReader(m, lim.MaxFileBytes+1)
+	}
+	data, err := io.ReadAll(in)
+	sum := body.SHA256() // of the fetched file (the archive, if any)
 	_ = body.Close()
+	if m != nil {
+		_ = m.Close()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read workbook: %w", err)
 	}
-	return openXLSX(ctx, data, sum, cfg, lim)
+	if cfg.Archive != nil && int64(len(data)) > lim.MaxFileBytes {
+		return nil, fmt.Errorf("%w: workbook in the archive exceeds %d bytes", ErrTooLarge, lim.MaxFileBytes)
+	}
+	s, err := openXLSX(ctx, data, sum, cfg, lim)
+	if err != nil {
+		return nil, err
+	}
+	return WithLocation(s, cfg, loc), nil
 }
 
 // FetchOptions implements FileAdapter: the fetch options with the workbook size limit applied.
-func (a *XLSXAdapter) FetchOptions(*config.Source) FetchOptions {
+func (a *XLSXAdapter) FetchOptions(cfg *config.Source) FetchOptions {
 	lim := a.Limits.withDefaults()
 	fo := a.Fetch
+	if cfg != nil && cfg.Archive != nil {
+		// The fetched file is the archive; the workbook limit applies to the member (see OpenReader).
+		return fo.WithDefaults()
+	}
 	if fo.MaxBytes <= 0 || fo.MaxBytes > lim.MaxFileBytes {
 		fo.MaxBytes = lim.MaxFileBytes
 	}
@@ -116,6 +142,14 @@ func (a *XLSXAdapter) OpenReader(ctx context.Context, cfg *config.Source, r io.R
 	}
 	lim := a.Limits.withDefaults()
 	max := a.FetchOptions(cfg).MaxBytes
+	if cfg.Archive != nil {
+		m, err := openArchiveMember(ctx, r, cfg.Archive, max, a.Archive)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = m.Close() }()
+		r, max = m, lim.MaxFileBytes
+	}
 	data, err := io.ReadAll(io.LimitReader(r, max+1))
 	if err != nil {
 		return nil, fmt.Errorf("read workbook: %w", err)

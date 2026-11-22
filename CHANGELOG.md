@@ -3,6 +3,7 @@
 All notable user-visible changes. Maintained by the `documentor` role. Newest first.
 
 ## Unreleased
+- Standalone csv and xlsx sources can read a zip member (`archive: {type: zip, member: <regex>}`) and monthly URLs (`resolve: {kind: month}`); the chosen URL is recorded on the run and shown by `importer run`; https-to-http redirects are refused (see [docs/mapping-spec.md](docs/mapping-spec.md#archives)).
 - Fetched files are kept by SHA-256 (`FILE_STORE_DIR`, default `data/files`); a run sends its stored ETag/Last-Modified and a `304` (or an identical file when `change_detection` lists `content_hash`) closes as `unchanged_file` with no parsing; `importer reparse --source <id> [--run <id>]` parses a stored file again without network (see [docs/operations.md](docs/operations.md#importer-reparse)). No file retention yet.
 - Concurrent runs no longer deadlock when they outnumber the database pool: source locks use their own connections, tuned with `DB_MAX_CONNS`, `DB_LOCK_MAX_CONNS` and `DB_LOCK_WAIT` (see [docs/operations.md](docs/operations.md#connection-pool-and-source-locks)).
 - Within one import run, a repeated natural key is now a row error (`duplicate natural key`, counted in `failed`) instead of silently overwriting the first record; `--dry-run` reports duplicates too (see [docs/data-model.md](docs/data-model.md#decisions-task-018)).

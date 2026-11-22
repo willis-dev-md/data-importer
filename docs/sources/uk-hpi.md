@@ -26,7 +26,9 @@ Fixtures: `testdata/hpi/average-prices-trimmed.csv` and `average-prices-property
 - No preamble, no footnotes, clean UTF-8 CSV.
 - Quirks to design around:
   - **The file name carries the data month** (`-2026-09`) and the file for month M appears about two months later,
-    so a fixed URL does not work: see *Location resolution* in [mapping-spec](../mapping-spec.md).
+    so a fixed URL does not work. Implemented (task 015): a standalone source can use `resolve: {ym: {kind: month, layout: "2006-01", ...}}`
+    (see *Location resolution* in [mapping-spec](../mapping-spec.md)). Not verified against the real HPI URLs (`UNVERIFIED`).
+    Not implemented: group templating, so the source is not configured here yet (task 016).
   - The full file uses a **different date format** (`01/01/2004`, day first) and column names (`RegionName`,
     `AveragePrice`) from the attribute files (ISO date, `Region_Name`, `Average_Price`). We use the attribute files.
   - The download page lists the files as "34KB", "7.4KB" and so on, but the real files are 35 MB, 7.6 MB, etc.

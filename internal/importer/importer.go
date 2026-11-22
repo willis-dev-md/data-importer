@@ -223,6 +223,9 @@ func Run(ctx context.Context, deps Deps, sourceID string, opts Options) (RunResu
 		var in fileInput
 		if in, runErr = prepareFile(ctx, deps, fa, cfg, sourceID, res.RunID, reparseFile); runErr == nil {
 			open, unchanged = in.open, in.unchanged
+			if unchanged && in.location != "" { // nothing is parsed, but the run still records where it looked
+				res.SourceMeta, _ = json.Marshal(map[string]string{source.ResolveKey: in.location})
+			}
 		}
 	} else {
 		open = func() (source.Stream, func() error, error) {

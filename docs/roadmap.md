@@ -8,7 +8,7 @@ Status as of task 012. Milestones M0 to M5 are done; the task numbers are in the
 | M1 | Store + model | Schema from [data-model](data-model.md), store package, integration tests | done: tasks 002, 003 |
 | M2 | CSV adapter | Configurable parsing, headerless files, metadata preamble, natural key, error capture | done: tasks 004, 005 |
 | M2b | XLSX adapter + row pipeline | Sheets/hidden sheets, column letters, section/fill_down/unpivot/normalize, file hash + conditional fetch, `source_files`, reparse. Acceptance fixture: BoE base rate | remaining: task 013 |
-| M2c | Files and URLs | File retention + change detection + reparse (014), zip archives and `resolve` for changing URLs (015) | remaining: task 015 |
+| M2c | Files and URLs | File retention + change detection + reparse (014), zip archives and `resolve` for changing URLs (015) | partly done: tasks 014, 015 (file retention still open, see backlog) |
 | M3 | Importer core | Runs, chunked idempotent upsert, counts, shape tracking, advisory lock | done: task 008 (CLI in task 009) |
 | M4 | Mapping engine | Parser, validator, transforms, `period` type, `@meta` refs, error model, dry-run | done: tasks 006 (canonical v2, parser, validator), 007 (evaluator) |
 | M5 | gRPC read API | `DataService` with filters, keyset paging, mapping on read | done: tasks 010 (skeleton), 011 (DataService) |
@@ -24,7 +24,7 @@ that work.
 
 Remaining work, in order of the table:
 - M2b: XLSX adapter and row pipeline (task 013).
-- M2c: zip archives and location resolution (task 015). Fetched-file retention is still open (backlog).
+- M2c: fetched-file retention is still open (backlog). Zip archives and location resolution are done (task 015, see [mapping-spec](mapping-spec.md#archives)).
 - M6: HTTP JSON adapter.
 - M7: scheduler and the source and import services.
 - M7b: source groups.
@@ -53,6 +53,15 @@ Known limitations of the task 009 CLI, left as future work:
 - No retention or cleanup for fetched files (`source_files`, the `FILE_STORE_DIR` directory): every fetched file is kept. Task 014 left it out ([data model](data-model.md#decisions-task-014)).
 - `FILE_STORE_DIR` defaults to `data/files` relative to the working directory: a run from another directory silently starts an empty store, and a later `reparse` fails with `stored file is missing`. Use an absolute path, or make the default absolute.
 
+Zip archives and location resolution (task 015), not verified (`UNVERIFIED`):
+- A 256 MB member at the 100:1 ratio limit is not tested (the limits are tested with smaller and bomb cases).
+- Fuzzing beyond the seed corpora of the zip and resolver parsers.
+- A redirect loop is not tested.
+- The fallback used when unlinking the spool file fails (the name is kept and removed on Close) is not tested.
+- The 0600 mode of the spool file is not tested; concurrent-reader tests are missing.
+- URL query tokens and userinfo are not redacted in `_location`, the run summary or resolver errors. Configs must not contain secrets; a redaction rule is open.
+- Group templating (`{year}{status}`) is not implemented; `resolve` and `archive` work for standalone sources only (M7b).
+
 XLSX adapter (task 013), known limits that the adapter does not detect:
 - A `<c>` placed outside `<sheetData>` is silently ignored.
 - A cell whose `t` attribute does not match its `<is>`/`<v>` content reads as empty.
@@ -66,5 +75,6 @@ XLSX adapter (task 013), known limits that the adapter does not detect:
 - **Validated:** task 018 (duplicate natural keys within a run are row errors; dry run detects them too). Docs were updated by the documentor ([data-model](data-model.md#decisions-task-018), [design](design.md#9-failure-handling)). 
 - **Validated:** task 019 (source locks on their own connections; the pool cannot deadlock on concurrent runs). Docs were updated by the documentor ([operations](operations.md#connection-pool-and-source-locks), [design](design.md#9-failure-handling), [data model](data-model.md#decisions-task-019)). 
 - **Validated:** task 014 (fetched files kept by SHA-256, conditional fetch with `unchanged_file`, `importer reparse`; no retention yet). Docs were updated by the documentor ([data model](data-model.md#decisions-task-014), [design](design.md#import), [operations](operations.md#importer-reparse)).
-- **Next tasks:** 015 (zip archives and URL resolution), 016 (UK HPI), 017 (ASHE Table 20), then 020 (lock loss detection: a run stops when its lock session is lost; backlog above). Specs are in `factory/tasks/`.
+- **Validated:** task 015 (zip archives with zip-safety limits, `resolve` for monthly URLs, `_location` on the run and in `importer run`, https-to-http redirect refused). Docs were updated by the documentor ([mapping-spec](mapping-spec.md#archives), [roadmap](roadmap.md#hardening-backlog)); the unverified items are in the Hardening backlog.
+- **Next tasks:** 016 (UK HPI), 017 (ASHE Table 20), then 020 (lock loss detection: a run stops when its lock session is lost; backlog above). Specs are in `factory/tasks/`.
 - **Housekeeping for you:** fill `factory/metrics/prices.json` (cost shows n/a); decide whether to keep the docs-role budget (documentor 20, runbook-refiner 25 tool calls); the Hardening backlog above lists known limits.

@@ -24,20 +24,22 @@ const (
 
 // Source is the setup of one data source (see docs/mapping-spec.md).
 type Source struct {
-	ID              string            `yaml:"id"`
-	Kind            string            `yaml:"kind"`
-	Location        string            `yaml:"location"`
-	CSV             *CSV              `yaml:"csv,omitempty"`
-	XLSX            *XLSX             `yaml:"xlsx,omitempty"`
-	Table           Table             `yaml:"table,omitempty"`
-	Context         map[string]string `yaml:"context,omitempty"`
-	NaturalKey      []string          `yaml:"natural_key"`
-	MissingPolicy   string            `yaml:"missing_policy,omitempty"`
-	MaxErrorRatio   float64           `yaml:"max_error_ratio"`
-	Schedule        *Schedule         `yaml:"schedule,omitempty"`
-	ChangeDetection []string          `yaml:"change_detection,omitempty"`
-	Enabled         *bool             `yaml:"enabled,omitempty"`
-	Auth            *Auth             `yaml:"auth,omitempty"`
+	ID              string             `yaml:"id"`
+	Kind            string             `yaml:"kind"`
+	Location        string             `yaml:"location"`
+	Archive         *Archive           `yaml:"archive,omitempty"`
+	Resolve         map[string]Resolve `yaml:"resolve,omitempty"`
+	CSV             *CSV               `yaml:"csv,omitempty"`
+	XLSX            *XLSX              `yaml:"xlsx,omitempty"`
+	Table           Table              `yaml:"table,omitempty"`
+	Context         map[string]string  `yaml:"context,omitempty"`
+	NaturalKey      []string           `yaml:"natural_key"`
+	MissingPolicy   string             `yaml:"missing_policy,omitempty"`
+	MaxErrorRatio   float64            `yaml:"max_error_ratio"`
+	Schedule        *Schedule          `yaml:"schedule,omitempty"`
+	ChangeDetection []string           `yaml:"change_detection,omitempty"`
+	Enabled         *bool              `yaml:"enabled,omitempty"`
+	Auth            *Auth              `yaml:"auth,omitempty"`
 }
 
 // CSV holds the options of a csv source.
@@ -149,6 +151,7 @@ func (s *Source) Validate() error {
 	if strings.TrimSpace(s.Location) == "" {
 		bad("location", "required")
 	}
+	s.validateArchiveAndResolve(bad)
 	if s.MaxErrorRatio < 0 || s.MaxErrorRatio > 1 {
 		bad("max_error_ratio", "must be between 0 and 1, got %v", s.MaxErrorRatio)
 	}

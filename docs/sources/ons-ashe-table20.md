@@ -13,6 +13,9 @@ Fixtures: `testdata/ashe/t20-7a-trimmed.xlsx` (sheets `Notes`, `All`, `Male Full
 - One **zip per edition** (reference year and status), e.g. `…/datasets/agegroupbyoccupation2digitsocashetable20/2026provisional/ashetable202026provisional.zip` (4.4 MB). Editions: provisional (October of year Y) then
   revised (October of Y+1). The URL pattern `{year}{status}/ashetable20{year}{status}.zip` holds for 2021 onwards;
   older editions are irregular and need explicit locations.
+  Implemented (task 015): `archive: {type: zip, member: ...}` reads the workbook from the zip, with an explicit `location` per edition
+  (see [mapping-spec](../mapping-spec.md#archives)). Not implemented: the `{year}{status}` template (group templating, M7b), so each
+  edition's source is written by hand until then.
 - The zip holds **22 workbooks** named `PROV - Age by Occupation SOC20 (2) Table 20.<n><a|b>   <measure> 2026.xlsx`:
   `a` = estimates, `b` = coefficients of variation (CV, a reliability measure). Measures: weekly pay (20.1 to 20.4),
   hourly pay (20.5, 20.6), **annual pay gross (20.7)**, annual incentive pay (20.8), paid hours (20.9 to 20.11).

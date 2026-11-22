@@ -28,7 +28,8 @@ var ErrRecordTooLarge = errors.New("csv row exceeds maximum size")
 
 // CSVAdapter reads `kind: csv` sources.
 type CSVAdapter struct {
-	Fetch FetchOptions
+	Fetch   FetchOptions
+	Archive ArchiveLimits // used when the source has `archive:`; zero values mean the defaults
 }
 
 // NewCSV returns the csv adapter.
@@ -39,7 +40,11 @@ func (a *CSVAdapter) Open(ctx context.Context, cfg *config.Source) (Stream, erro
 	if cfg == nil || cfg.Kind != config.KindCSV {
 		return nil, errors.New("csv adapter: source kind is not csv")
 	}
-	body, err := Fetch(ctx, cfg.Location, a.Fetch)
+	loc, err := ResolveLocation(ctx, cfg, a.Fetch)
+	if err != nil {
+		return nil, err
+	}
+	body, err := Fetch(ctx, loc, a.Fetch)
 	if err != nil {
 		return nil, err
 	}
@@ -47,12 +52,25 @@ func (a *CSVAdapter) Open(ctx context.Context, cfg *config.Source) (Stream, erro
 	if cfg.CSV != nil {
 		opts = *cfg.CSV
 	}
+	if cfg.Archive != nil {
+		m, err := openArchiveMember(ctx, body, cfg.Archive, a.Fetch.WithDefaults().MaxBytes, a.Archive)
+		_ = body.Close() // the archive is spooled completely (or the open failed)
+		if err != nil {
+			return nil, err
+		}
+		s, err := newCSVStream(ctx, m, m, opts, cfg.NaturalKey)
+		if err != nil {
+			_ = m.Close()
+			return nil, err
+		}
+		return WithLocation(s, cfg, loc), nil
+	}
 	s, err := newCSVStream(ctx, body, body, opts, cfg.NaturalKey)
 	if err != nil {
 		_ = body.Close()
 		return nil, err
 	}
-	return s, nil
+	return WithLocation(s, cfg, loc), nil
 }
 
 // FetchOptions implements FileAdapter.
@@ -66,6 +84,18 @@ func (a *CSVAdapter) OpenReader(ctx context.Context, cfg *config.Source, r io.Re
 	var opts config.CSV
 	if cfg.CSV != nil {
 		opts = *cfg.CSV
+	}
+	if cfg.Archive != nil {
+		m, err := openArchiveMember(ctx, r, cfg.Archive, a.Fetch.WithDefaults().MaxBytes, a.Archive)
+		if err != nil {
+			return nil, err
+		}
+		s, err := newCSVStream(ctx, m, m, opts, cfg.NaturalKey)
+		if err != nil {
+			_ = m.Close()
+			return nil, err
+		}
+		return s, nil
 	}
 	return newCSVStream(ctx, r, nil, opts, cfg.NaturalKey)
 }

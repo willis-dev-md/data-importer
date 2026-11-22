@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -204,8 +205,14 @@ func summary(id string, r importer.RunResult, d time.Duration) string {
 	if r.DryRun {
 		run = "dry-run"
 	}
-	return fmt.Sprintf("source=%s status=%s inserted=%d updated=%d unchanged=%d failed=%d run=%s duration=%s",
+	out := fmt.Sprintf("source=%s status=%s inserted=%d updated=%d unchanged=%d failed=%d run=%s duration=%s",
 		id, r.Status, r.Inserted, r.Updated, r.Unchanged, r.Failed, run, d)
+	// A source with `resolve` shows the location that was chosen.
+	var meta map[string]string
+	if json.Unmarshal(r.SourceMeta, &meta) == nil && meta[source.ResolveKey] != "" {
+		out += fmt.Sprintf(" location=%q", meta[source.ResolveKey])
+	}
+	return out
 }
 
 // authClient returns an HTTP client that adds header: value to requests to the

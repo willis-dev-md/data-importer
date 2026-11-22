@@ -2,6 +2,7 @@ package importer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ type openFunc func() (stream source.Stream, after func() error, err error)
 type fileInput struct {
 	open      openFunc
 	unchanged bool
+	location  string // the resolved location, only when the source has `resolve`
 }
 
 // change_detection entries (docs/mapping-spec.md).
@@ -51,7 +53,7 @@ func prepareFile(ctx context.Context, deps Deps, fa source.FileAdapter, cfg *con
 		if err := deps.Store.SetRunFile(ctx, runID, reparse.ID); err != nil {
 			return fileInput{}, err
 		}
-		return fileInput{open: storedOpener(ctx, deps.Files, fa, cfg, reparse.SHA256)}, nil
+		return fileInput{open: storedOpener(ctx, deps.Files, fa, cfg, reparse.SHA256, "")}, nil
 	}
 
 	cd := func(name string) bool { return slices.Contains(cfg.ChangeDetection, name) }
@@ -76,12 +78,30 @@ func prepareFile(ctx context.Context, deps Deps, fa source.FileAdapter, cfg *con
 		}
 	}
 
-	body, err := source.Fetch(ctx, cfg.Location, fo)
+	// A resolved location (cfg.Resolve) is chosen first; its validators are the baseline of the
+	// conditional request: those of the file last fetched from the SAME url. When the chosen url
+	// differs from the one recorded for that file, the old validators belong to another
+	// resource and are not sent (content_hash still detects an unchanged file).
+	loc, err := source.ResolveLocation(ctx, cfg, fo)
+	if err != nil {
+		return fileInput{}, fmt.Errorf("resolve location: %w", err)
+	}
+	resolved := ""
+	if len(cfg.Resolve) > 0 {
+		resolved = loc
+	}
+	if len(cfg.Resolve) > 0 && prev != nil && (fo.IfNoneMatch != "" || fo.IfModifiedSince != "") {
+		if last := lastLocation(ctx, deps, prev); last != loc {
+			fo.IfNoneMatch, fo.IfModifiedSince = "", ""
+		}
+	}
+
+	body, err := source.Fetch(ctx, loc, fo)
 	if errors.Is(err, source.ErrNotModified) && prev != nil {
 		if err := deps.Store.SetRunFile(ctx, runID, prev.ID); err != nil {
 			return fileInput{}, err
 		}
-		return fileInput{unchanged: true}, nil
+		return fileInput{unchanged: true, location: resolved}, nil
 	}
 	if err != nil {
 		return fileInput{}, fmt.Errorf("fetch source: %w", err)
@@ -107,12 +127,31 @@ func prepareFile(ctx context.Context, deps Deps, fa source.FileAdapter, cfg *con
 		return fileInput{}, err
 	}
 	if prev != nil && cd(cdContentHash) && prev.SHA256 == info.SHA256 {
-		return fileInput{unchanged: true}, nil
+		return fileInput{unchanged: true, location: resolved}, nil
 	}
 	if err := verifyStored(ctx, deps.Files, info.SHA256); err != nil {
 		return fileInput{}, err
 	}
-	return fileInput{open: storedOpener(ctx, deps.Files, fa, cfg, info.SHA256)}, nil
+	return fileInput{open: storedOpener(ctx, deps.Files, fa, cfg, info.SHA256, loc)}, nil
+}
+
+// lastLocation returns the location recorded (source_meta._location) on the run that stored f, or "".
+func lastLocation(ctx context.Context, deps Deps, f *store.File) string {
+	g, ok := deps.Store.(interface {
+		GetRun(ctx context.Context, runID int64) (store.Run, error)
+	})
+	if !ok {
+		return ""
+	}
+	run, err := g.GetRun(ctx, f.RunID)
+	if err != nil || len(run.SourceMeta) == 0 {
+		return ""
+	}
+	var m map[string]string
+	if json.Unmarshal(run.SourceMeta, &m) != nil {
+		return ""
+	}
+	return m[source.ResolveKey]
 }
 
 // verifyStored reads the stored file once, streaming, and fails with
@@ -129,7 +168,7 @@ func verifyStored(ctx context.Context, fs store.FileStore, sha string) error {
 	return nil
 }
 
-func storedOpener(ctx context.Context, fs store.FileStore, fa source.FileAdapter, cfg *config.Source, sha string) openFunc {
+func storedOpener(ctx context.Context, fs store.FileStore, fa source.FileAdapter, cfg *config.Source, sha, loc string) openFunc {
 	return func() (source.Stream, func() error, error) {
 		rc, err := fs.Open(ctx, sha)
 		if err != nil {
@@ -147,6 +186,9 @@ func storedOpener(ctx context.Context, fs store.FileStore, fa source.FileAdapter
 				return fmt.Errorf("stored file %s: %w", sha, err)
 			}
 			return nil
+		}
+		if loc != "" {
+			s = source.WithLocation(s, cfg, loc)
 		}
 		return fileStream{Stream: s, rc: rc}, after, nil
 	}

@@ -124,10 +124,12 @@ Exit codes: 0 applied; 1 invalid files or database error; 2 usage (no directory,
 directory or schema, unknown flag).
 
 ### `importer run`
-`importer run --source <id> [--dry-run]` imports one source (CSV so far) from the stored config using `DATABASE_URL`
+`importer run --source <id> [--dry-run]` imports one source (CSV or XLSX) from the stored config using `DATABASE_URL`
 and prints one summary line on stdout:
 
     source=<id> status=<status> inserted=N updated=N unchanged=N failed=N run=<run id|dry-run> duration=<d>
+
+When the source has a `resolve` (a file name that changes, see [mapping-spec](mapping-spec.md#location-resolution-files-whose-url-changes)), the line also ends with ` location="<chosen url>"`, and the same value is stored in `import_runs.source_meta._location`. Plain configured sources print no `location=`; `reparse` records no `_location` (UNVERIFIED in the output of `reparse`). URL query tokens and userinfo are not redacted in this output, so configs must not hold secrets in URLs (secrets use env var names only).
 
 Real output, first run, repeat run, and a dry run on an empty database:
 

@@ -43,6 +43,10 @@ type FetchOptions struct {
 	// then returns ErrNotModified. They are ignored for local files.
 	IfNoneMatch     string
 	IfModifiedSince string
+
+	// Now is the clock used to generate `resolve` candidates; nil means time.Now.
+	// Tests inject a fixed clock.
+	Now func() time.Time
 }
 
 // Conditional reports whether the fetch sends a conditional header.
@@ -107,7 +111,7 @@ func fetchHTTPS(ctx context.Context, location string, opts FetchOptions) (rc io.
 	if client == nil {
 		client = &http.Client{}
 	}
-	c := *client // copy so the caller's client is not modified
+	c := httpsOnly(client) // copy so the caller's client is not modified
 	if opts.Timeout > 0 {
 		c.Timeout = opts.Timeout
 	} else if c.Timeout == 0 {
@@ -141,6 +145,34 @@ func fetchHTTPS(ctx context.Context, location string, opts FetchOptions) (rc io.
 		return nil, "", "", fmt.Errorf("%w: Content-Length %d > %d", ErrTooLarge, resp.ContentLength, opts.MaxBytes)
 	}
 	return resp.Body, resp.Header.Get("ETag"), resp.Header.Get("Last-Modified"), nil
+}
+
+// ErrRedirectDowngrade is returned when a response redirects an https request to a
+// non-https URL: a downgrade is refused, whatever the server says.
+var ErrRedirectDowngrade = errors.New("refusing redirect from https to a non-https URL")
+
+// httpsOnly returns a copy of client that refuses redirects to anything but https (the
+// first request of a fetch is always https), keeping any CheckRedirect the client had.
+func httpsOnly(client *http.Client) *http.Client {
+	c := *client
+	inner := client.CheckRedirect
+	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req.URL.Scheme != "https" {
+			from := ""
+			if len(via) > 0 {
+				from = via[len(via)-1].URL.Redacted()
+			}
+			return fmt.Errorf("%w: %s -> %s", ErrRedirectDowngrade, from, req.URL.Redacted())
+		}
+		if inner != nil {
+			return inner(req, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &c
 }
 
 // Read implements io.Reader; it fails with ErrTooLarge once more than the maximum has been read.

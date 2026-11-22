@@ -49,12 +49,15 @@ max_error_ratio: 0.05
 #### Implemented behaviour (task 004)
 
 - **Strict config:** YAML is decoded strictly. Unknown keys are errors and validation errors name the field path
-  (e.g. `csv.delimiter`). Only `kind: csv` validates today.
+  (e.g. `csv.delimiter`). Supported kinds today are `csv` and `xlsx` (anything else, including `http_json`, fails with
+  `unsupported kind "<kind>" (supported: csv, xlsx)`; the HTTP JSON adapter is not implemented yet).
   [examples/ons-l55o.source.yaml](examples/ons-l55o.source.yaml) loads and parses the fixture (task 005).
 - **Options:** `delimiter` is one character (`tab` or `\t` for a tab). `encoding` is `utf-8` (default, BOM stripped),
   `windows-1252`, `utf-16`/`utf-16le` (BOM honoured, little-endian by default) or `utf-16be`. `natural_key` fields must be columns.
 - **Fetch:** `location` is a local path, `file://` or `https://`; plain `http://` is rejected. Defaults: 256 MB size
   limit, 5 minute timeout (whole fetch, body included), a `User-Agent` is sent. The SHA-256 of the bytes read is recorded.
+  A redirect from `https://` to `http://` is refused (`refusing redirect from https to a non-https URL`, task 015); https to https
+  is allowed. A redirect to another host does not receive auth headers.
 - **Parsing:** an own row scanner is used instead of `encoding/csv`, so `RowError.Raw` and line numbers are exact.
   Blank lines are skipped. A row with the wrong field count, a bad quote or an empty natural key field yields a recorded
   `RowError` (line number and raw text) and the stream continues. A row over 16 MiB is a fatal stream error.
@@ -148,24 +151,68 @@ context: { year: 2026, status: provisional }
 Values set by pipeline `section` steps and the sheet name (`@ctx.sheet`) live in the same namespace.
 
 ## Archives
-A file can be a zip containing the real file(s); pick the member by regex. Archives are read with limits on
-member size, ratio and count (zip-bomb protection) and member names are never used as filesystem paths.
+A file can be a zip containing the real file; `archive` picks the member by regex. Implemented for standalone
+`kind: csv` and `kind: xlsx` sources (task 015):
 
 ```yaml
 location: https://example.org/data.zip
 archive: { type: zip, member: '(?i)Table 20\.7a .*\.xlsx$' }   # exactly one member must match
 ```
 
+- `type` must be `zip`. `member` is a regular expression matched against the raw member name. Exactly one member must
+  match: zero or more than one is an error that lists the member names (quoted, at most 20 names of 120 characters each).
+- Member names are only matched, never used as paths. `..`, absolute names and odd characters are matched as they are;
+  the ONS Table 20 names with repeated spaces match too.
+- Limits: the archive is at most 256 MB (`ErrTooLarge` above it); at most 1,000 entries; the chosen member is at most
+  256 MB uncompressed (checked against its declared size and against the bytes actually inflated); compression ratio at most
+  100:1. Nested zips are not opened. Symlink, special and encrypted entries are rejected. A breached limit is `ErrArchiveLimit`,
+  a bad zip is `ErrArchiveBad`, a member selection problem is `ErrArchiveMember`.
+- The member is inflated on the fly and fed to the csv or xlsx adapter; it is never extracted to disk. The xlsx adapter still
+  reads the member into memory, under its own 100 MiB workbook limit.
+- A zip needs random access, so the archive is spooled to a temporary file (`os.CreateTemp`, mode 0600). The file is unlinked
+  right after creation (the open descriptor is kept), so nothing is visible in `TMPDIR` while it is open, and it is removed on
+  Close. Verified: after `kill -9`, a panic or SIGTERM no `importer-archive-*` file is left.
+- `source_files` stores the **archive** (its bytes and SHA-256, which equals `sha256sum` of the downloaded file), not the member.
+  The member is picked again on every parse and reparse.
+- Verified (task 015): an ONS-named xlsx member in a zip imported through the real binary with 1296 records; a second run
+  reported `unchanged_file`; `importer reparse` with the zip moved away reported `unchanged=1296`.
+- Verified against 40 hostile archives (zip bombs of 50 MB, 300 MB and 1 GB ratio cases, lying headers, path traversal names
+  `../x`, absolute and backslash names, NUL, symlinks, truncated, trailing or prepended garbage, a non-zip renamed to `.zip`):
+  all bounded (heap at most 3 MB, at most 140 ms each) and none panics.
+
 ## Location resolution (files whose URL changes)
 Publishers often put the date in the file name (`Average-prices-2026-09.csv`). `resolve` generates candidate
-values for a placeholder, newest first, and the first URL that answers (HEAD, falling back to a ranged GET) wins:
+values for a placeholder, newest first, and the first URL that answers wins. Implemented for standalone sources (task 015):
 
 ```yaml
 location: https://example.org/files/Average-prices-{ym}.csv
 resolve:
   ym: { kind: month, layout: "2006-01", start: "-1m", back: 6 }   # this month minus 1, then 5 earlier
 ```
-If no candidate answers, the run fails with the list of URLs tried. The chosen URL is recorded on the run.
+
+- `kind` must be `month` (UTC calendar months). `start` is `0m` or `-Nm` (N from 1 to 1200): the first candidate. `back`
+  is the number of candidates (1 to 120). `layout` is a Go time layout that names the year and the month and renders only
+  `[A-Za-z0-9._-]`. A source has at most one resolved placeholder.
+- Probe: HEAD first; on 405 or 501 a GET with `Range: bytes=0-0`. 200 (or 206 for the GET) means the file exists. Only 404 and
+  410 mean "not found" and move on to the next candidate. Any other status (5xx, 401, 403), a timeout, a connection error or an
+  EOF is an error that names the URL: an outage never falls back to an older file. Local paths and `file://` are checked with stat.
+- If no candidate exists the run fails with `resolve: no candidate location exists` and lists every URL tried (at most 20 of
+  120 characters, then `and N more`).
+- Composition: `resolve` picks the URL first, then the normal conditional fetch runs on that URL. ETag and Last-Modified are sent
+  only if the last stored file came from the same URL, so a new month's URL sends no validators; a `304` closes as `unchanged_file`.
+- The chosen URL is stored in `import_runs.source_meta._location`, and `importer run` prints it in the summary as `location="..."`.
+  A reparse does not touch the network and records no `_location`.
+- **Secrets:** URL query tokens and userinfo are not redacted in `_location`, the summary or the errors. Configs must never
+  contain secrets; use `auth` with an environment variable name instead.
+- **Placeholders:** a `{name}` left in `location` that has no `resolve` entry fails validation, for example
+  `location: unresolved placeholder {year} (no group template value and no resolve entry)`. A `resolve` name missing from
+  `location` also fails. Group templating (`{year}{status}`) is not implemented yet; the check runs on the expanded source,
+  so it covers templating once it exists. `{{ym}}` (double braces) passes validation and is not substituted: do not use it.
+- Config errors show the field path, and `importer sources apply` exits 1 on them.
+
+**Not verified (task 015):** a 256 MB member at the 100:1 ratio; fuzzing beyond the seed corpora; a redirect loop; the fallback
+when unlinking the spool file fails; the 0600 mode of the spool file and concurrent-reader behaviour. These are `UNVERIFIED`
+and listed in the [roadmap](roadmap.md#hardening-backlog).
 
 ## Row pipeline (`table:`) for XLSX
 
