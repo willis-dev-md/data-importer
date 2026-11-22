@@ -30,6 +30,6 @@ docs/design.md (locking and failure handling); docs/operations.md (env var); doc
 docs/runbooks/import-failures.md (symptom `lost source lock`, diagnosis, fix, and the earlier known-limitation text removed)
 
 ## Status
-in-progress
+pending
 ## Log
 (created by the orchestrator from the task 019 validator's finding)
