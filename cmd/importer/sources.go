@@ -4,14 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"gopkg.in/yaml.v3"
 
 	"github.com/willis-dev-md/data-importer/internal/config"
@@ -38,12 +40,17 @@ func openStore(ctx context.Context, cmd string, stderr io.Writer) (*store.Store,
 		fmt.Fprintf(stderr, "importer %s: DATABASE_URL is not set\n", cmd)
 		return nil, nil, exitUsage
 	}
-	pool, err := pgxpool.New(ctx, url)
+	pool, opts, err := store.OpenPool(ctx, url, getenv)
+	if errors.Is(err, store.ErrConfig) {
+		fmt.Fprintf(stderr, "importer %s: %s\n", cmd, strings.TrimPrefix(err.Error(), store.ErrConfig.Error()+": "))
+		return nil, nil, exitUsage
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "importer %s: connect to database: %v\n", cmd, err)
 		return nil, nil, exitFailed
 	}
-	return store.New(pool), pool.Close, exitOK
+	store.WarnIfOverBudget(ctx, pool, opts, slog.New(slog.NewTextHandler(stderr, nil)))
+	return store.NewWithOptions(pool, opts), pool.Close, exitOK
 }
 
 // runSources implements `importer sources apply [--dir <dir>] [--schema <file>]`.

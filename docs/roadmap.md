@@ -45,7 +45,10 @@ Known limitations of the task 009 CLI, left as future work:
 - That a redirect to another host does not receive the auth token is covered by a unit test only, not by an end-to-end test.
 - `missing_policy: tombstone` is accepted in source config but nothing applies it yet and no code sets `deleted_at`, so `include_deleted` has no effect on real data until tombstoning is implemented.
 - The ephemeral test database is created with encoding SQL_ASCII (container locale), so tests do not exercise UTF-8 collation or encoding rules like production: create it with UTF8 (`initdb -E UTF8`) in `scripts/testdb.sh`.
-- Concurrent runs can deadlock on pool exhaustion: each run holds one pool connection for the source advisory lock, so N concurrent runs of N sources with N >= the pool size wait forever for a second connection (4 concurrent runs hung in a test). Task 019 (`factory/tasks/019-lock-pool-starvation.md`).
+- Concurrent runs deadlocked on pool exhaustion, because each run held a work-pool connection for its source advisory lock. Fixed by task 019 (`factory/tasks/019-lock-pool-starvation.md`): lock connections are separate ([data model](data-model.md#decisions-task-019), [operations](operations.md#connection-pool-and-source-locks)).
+- A killed lock session does not stop its run: Postgres releases the advisory lock, the run keeps going, a second run of the same source can start and succeed, and its abandoned-run sweep marks the first run `failed` while both write the same source. Task 020 (`factory/tasks/020-lock-loss-detection.md`) makes a run notice the lost lock and stop.
+- TLS for lock connections is not tested (the work pool's TLS is not changed by task 019).
+- The abort and panic lock-release paths (task 019) are covered by unit tests only (`TestLockSlotFreedOnEveryExit`), not through the real binary.
 - `importer run` prints `failed=N`, which now includes duplicate natural keys, but not the sample reasons in `RunResult.DuplicateSamples` (task 018 follow-up: print them after the summary line in `cmd/importer/runcmd.go`).
 - `TestFetchHTTPS/timeout` in `internal/source` flaked once under load: it relies on a timing assumption; make it deterministic.
 
@@ -60,5 +63,6 @@ XLSX adapter (task 013), known limits that the adapter does not detect:
 ## Resume here (session stopped 2026-11-21)
 - **Validated and pushed:** tasks 001 to 013 (M0 to M5, CSV/ONS, mapping, importer, CLI, gRPC read API, e2e demo, XLSX adapter with the Bank of England fixture end to end).
 - **Validated:** task 018 (duplicate natural keys within a run are row errors; dry run detects them too). Docs were updated by the documentor ([data-model](data-model.md#decisions-task-018), [design](design.md#9-failure-handling)). The orchestrator marks it done once `python3 scripts/factory-docs-check.py check 018` passes.
-- **Next task:** 019 (lock connections must not starve the pool: 4 concurrent runs deadlocked; backlog above). Then 014 (file retention, change detection, reparse), 015 (zip archives and URL resolution), 016 (UK HPI), 017 (ASHE Table 20). Specs are in `factory/tasks/`.
+- **Validated:** task 019 (source locks on their own connections; the pool cannot deadlock on concurrent runs). Docs were updated by the documentor ([operations](operations.md#connection-pool-and-source-locks), [design](design.md#9-failure-handling), [data model](data-model.md#decisions-task-019)). The orchestrator marks it done once `python3 scripts/factory-docs-check.py check 019` passes.
+- **Next task:** 020 (lock loss detection: a run stops when its lock session is lost; backlog above). Then 014 (file retention, change detection, reparse), 015 (zip archives and URL resolution), 016 (UK HPI), 017 (ASHE Table 20). Specs are in `factory/tasks/`.
 - **Housekeeping for you:** fill `factory/metrics/prices.json` (cost shows n/a); decide whether to keep the docs-role budget (documentor 20, runbook-refiner 25 tool calls); the Hardening backlog above lists known limits.

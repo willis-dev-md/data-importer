@@ -20,13 +20,37 @@ import (
 // ErrNotFound is returned when a requested row does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrLockCapacity means no lock connection became free within the lock wait.
+// No run row is created in that case.
+var ErrLockCapacity = errors.New("no lock connection available")
+
 // Store is the Postgres-backed store for sources, runs, raw records and import errors.
 type Store struct {
-	pool *pgxpool.Pool
+	pool      *pgxpool.Pool
+	lockCfg   *pgx.ConnConfig // connection settings of the dedicated lock connections
+	lockSlots chan struct{}   // bounds concurrent lock connections
+	lockWait  time.Duration
 }
 
-// New returns a Store using pool. The schema must already be migrated (see Migrate).
-func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+// New returns a Store using pool with default lock options. The schema must
+// already be migrated (see Migrate).
+func New(pool *pgxpool.Pool) *Store { return NewWithOptions(pool, Options{}) }
+
+// NewWithOptions is New with explicit lock options (zero values mean defaults).
+func NewWithOptions(pool *pgxpool.Pool, opts Options) *Store {
+	if opts.LockConns <= 0 {
+		opts.LockConns = DefaultLockConns
+	}
+	if opts.LockWait <= 0 {
+		opts.LockWait = DefaultLockWait
+	}
+	return &Store{
+		pool:      pool,
+		lockCfg:   pool.Config().ConnConfig.Copy(),
+		lockSlots: make(chan struct{}, opts.LockConns),
+		lockWait:  opts.LockWait,
+	}
+}
 
 // Source is a row of the sources table.
 type Source struct {
@@ -493,44 +517,78 @@ func (s *Store) ListRaw(ctx context.Context, sourceID, afterKey string, limit in
 }
 
 // TryAdvisoryLock tries to take a session-level Postgres advisory lock for the
-// source on a dedicated connection. If ok, the caller must call unlock (safe to
-// call more than once) which releases the lock and the connection. The lock is
-// also released by Postgres if the connection is lost. ok is false with a nil
-// error when another session holds the lock; a non-nil error means the attempt
-// itself failed (database down, closed pool, cancelled context) and says nothing
-// about who holds the lock. unlock is never nil and is a no-op unless ok.
+// source on a dedicated connection that is NOT part of the work pool (so a run
+// holding its lock can never starve its own queries) and is bounded by the lock
+// slots of the Store (Options.LockConns). If all slots are taken it waits up to
+// Options.LockWait and then fails with ErrLockCapacity (never waits forever).
+// If ok, the caller must call unlock (safe to call more than once) which
+// releases the lock, closes the connection and frees the slot. The lock is also
+// released by Postgres if the connection is lost. ok is false with a nil error
+// when another session holds the lock; a non-nil error means the attempt itself
+// failed (database down, no lock slot, cancelled context) and says nothing about
+// who holds the lock. unlock is never nil and is a no-op unless ok.
 func (s *Store) TryAdvisoryLock(ctx context.Context, sourceID string) (unlock func(), ok bool, err error) {
 	noop := func() {}
-	conn, err := s.pool.Acquire(ctx)
+	if err := s.acquireLockSlot(ctx); err != nil {
+		return noop, false, fmt.Errorf("advisory lock for %q: %w", sourceID, err)
+	}
+	conn, err := pgx.ConnectConfig(ctx, s.lockCfg.Copy())
 	if err != nil {
-		return noop, false, fmt.Errorf("advisory lock for %q: acquire connection: %w", sourceID, err)
+		<-s.lockSlots
+		return noop, false, fmt.Errorf("advisory lock for %q: connect: %w", sourceID, err)
 	}
 	const key = `hashtextextended('data-importer:source:' || $1::text, 0)`
 	var got bool
 	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock(`+key+`)`, sourceID).Scan(&got); err != nil {
-		// Unknown connection state: do not return it to the pool.
-		_ = conn.Hijack().Close(context.Background())
+		// Unknown connection state: closing the session drops any lock.
+		closeConn(conn)
+		<-s.lockSlots
 		return noop, false, fmt.Errorf("advisory lock for %q: %w", sourceID, err)
 	}
 	if !got {
-		conn.Release()
+		closeConn(conn)
+		<-s.lockSlots
 		return noop, false, nil
 	}
 	var once sync.Once
 	return func() {
 		once.Do(func() {
+			defer func() { <-s.lockSlots }()
 			bg, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
+			// Best effort explicit unlock; closing the session drops the lock anyway.
 			var released bool
-			err := conn.QueryRow(bg, `SELECT pg_advisory_unlock(`+key+`)`, sourceID).Scan(&released)
-			if err != nil || !released {
-				// Lock state unknown or connection broken: closing the session drops the lock.
-				_ = conn.Hijack().Close(bg)
-				return
-			}
-			conn.Release()
+			_ = conn.QueryRow(bg, `SELECT pg_advisory_unlock(`+key+`)`, sourceID).Scan(&released)
+			_ = conn.Close(bg)
 		})
 	}, true, nil
+}
+
+func closeConn(c *pgx.Conn) {
+	bg, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = c.Close(bg)
+}
+
+func (s *Store) acquireLockSlot(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("acquire lock connection: %w", err)
+	}
+	select {
+	case s.lockSlots <- struct{}{}:
+		return nil
+	default:
+	}
+	timer := time.NewTimer(s.lockWait)
+	defer timer.Stop()
+	select {
+	case s.lockSlots <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("acquire lock connection: %w", ctx.Err())
+	case <-timer.C:
+		return fmt.Errorf("%w: all %d are in use after waiting %s", ErrLockCapacity, cap(s.lockSlots), s.lockWait)
+	}
 }
 
 // ListRawPage is the keyset read used by the DataService: up to limit records of

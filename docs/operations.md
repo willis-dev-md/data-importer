@@ -10,7 +10,49 @@
 | `IMPORT_CONCURRENCY` | max simultaneous import runs (default 4) |
 | `SOURCES_DIR` | directory of source + mapping YAML; default for `importer sources apply --dir` |
 | `SCAN_LIMIT` | `importer serve` only: raw rows one `ListRecords` call may map, default `50000`; must be a positive integer, otherwise `importer serve` exits 2 before it connects to the database ([details](#importer-serve)) |
+| `DB_MAX_CONNS` | work pool size, default `max(4, NumCPU)`; positive integer, otherwise exit 2 ([details](#connection-pool-and-source-locks)) |
+| `DB_LOCK_MAX_CONNS` | lock connections per process (concurrent source locks), default `8`; positive integer ([details](#connection-pool-and-source-locks)) |
+| `DB_LOCK_WAIT` | how long a run waits for a free lock connection, default `30s`; positive Go duration ([details](#connection-pool-and-source-locks)) |
 | token env vars | any name given in a source's `auth.token_env`; read at `importer run` time only |
+
+## Connection pool and source locks
+
+`importer run`, `importer sources apply` and `importer serve` each open one work pool (`DB_MAX_CONNS`) and keep
+separate lock connections (`DB_LOCK_MAX_CONNS`). A source's advisory lock holds one lock connection, never a work-pool
+connection, so a run always finds the connections it needs to finish, and runs cannot deadlock on the pool. Before
+this change, N concurrent runs with a pool of N or fewer connections could wait forever.
+
+| Var | Default | Meaning |
+|---|---|---|
+| `DB_MAX_CONNS` | `max(4, NumCPU)` | work pool size (the pgxpool default) |
+| `DB_LOCK_MAX_CONNS` | `8` | lock connections per process = concurrent source locks per process |
+| `DB_LOCK_WAIT` | `30s` | Go duration; how long a run waits for a free lock connection |
+
+- An unset or empty variable means the default. An invalid value (`0`, negative, not a number, or a duration without
+  a unit such as `30`) exits 2 before any database connection is made, and the message names the variable:
+
+<!-- verify -->
+```bash
+go build -o bin/importer ./cmd/importer
+rc=0; DB_MAX_CONNS="0" DATABASE_URL=postgres://postgres@127.0.0.1:1/x bin/importer run --source ons-l55o || rc=$?
+echo "exit $rc"
+test "$rc" -eq 2
+```
+
+    importer run: DB_MAX_CONNS="0": want a positive integer
+    exit 2
+
+- Total connections per process = `DB_MAX_CONNS + DB_LOCK_MAX_CONNS`; keep it below Postgres `max_connections`. After
+  connecting, each process logs one WARN (never a failure) when the sum is larger than `max_connections`. `serve`
+  counts the lock connections although it takes no locks, which is conservative. (The WARN was checked by the
+  validator at `max_connections=10` with 8 + 8; it was not re-run for this document.)
+- When every lock connection is in use, a run waits up to `DB_LOCK_WAIT` (or until its context is cancelled), then
+  fails with `no lock connection available: all N are in use after waiting 30s` before it creates a run row. The CLI
+  exits 1 for this. From the CLI this cannot happen today, because each CLI process starts one run and has a free
+  lock connection: UNVERIFIED from the CLI, verified by a store/importer test only. It applies to in-process callers
+  that start many runs at once.
+- Lock connections use a copy of the work pool's connection settings (`application_name`, `search_path`, `sslmode`).
+  Pool connect hooks are not applied to them (none are set). TLS on lock connections is not tested.
 
 ## CLI
     importer migrate up
@@ -99,8 +141,8 @@ Real output, first run, repeat run, and a dry run on an empty database:
 | Exit | Meaning |
 |---|---|
 | 0 | run succeeded |
-| 1 | run `failed` or `aborted` (summary still printed on stdout, error on stderr), unknown source, invalid stored config, database error |
-| 2 | usage error: missing `--source`, missing `DATABASE_URL`, missing/empty token env var, unknown flag |
+| 1 | run `failed` or `aborted` (summary still printed on stdout, error on stderr), unknown source, invalid stored config, database error, no lock connection free within `DB_LOCK_WAIT` ([details](#connection-pool-and-source-locks)) |
+| 2 | usage error: missing `--source`, missing `DATABASE_URL`, missing/empty token env var, unknown flag, invalid `DB_MAX_CONNS`, `DB_LOCK_MAX_CONNS` or `DB_LOCK_WAIT` |
 | 3 | another run of the source holds the lock (already running) |
 
     $ importer run                       -> usage: importer run --source <id> [--dry-run]   (exit 2)
@@ -140,6 +182,7 @@ The other services are not in the proto yet.
 | `DATABASE_URL` | Postgres DSN; pinged for health |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | both set: serve TLS (minimum TLS 1.2); neither set: plaintext; only one: error |
 | `SCAN_LIMIT` | raw rows one `ListRecords` call maps, default `50000`; unset or empty means the default; must be a positive integer |
+| `DB_MAX_CONNS`, `DB_LOCK_MAX_CONNS`, `DB_LOCK_WAIT` | pool and lock settings, validated at startup (exit 2 when invalid); see [connection pool and source locks](#connection-pool-and-source-locks). `serve` takes no source locks, but the WARN budget check counts `DB_LOCK_MAX_CONNS` |
 
 `SCAN_LIMIT` is checked at startup, before the database is opened. Real output (built into `bin/`, as `make build`
 does), with `DATABASE_URL` pointing at a closed port (`127.0.0.1:1`), so no connection was attempted:

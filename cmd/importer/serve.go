@@ -2,15 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/willis-dev-md/data-importer/internal/server"
 	"github.com/willis-dev-md/data-importer/internal/store"
@@ -48,12 +48,17 @@ func serve(ctx context.Context, args []string, env func(string) string, stderr i
 		fmt.Fprintf(stderr, "importer serve: %v\n", err)
 		return 2
 	}
-	pool, err := pgxpool.New(ctx, url)
+	pool, popts, err := store.OpenPool(ctx, url, env)
+	if errors.Is(err, store.ErrConfig) {
+		fmt.Fprintf(stderr, "importer serve: %s\n", strings.TrimPrefix(err.Error(), store.ErrConfig.Error()+": "))
+		return 2
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "importer serve: %v\n", err)
 		return 1
 	}
 	defer pool.Close()
+	store.WarnIfOverBudget(ctx, pool, popts, log)
 
 	lis, err := net.Listen("tcp", cfg.Addr)
 	if err != nil {

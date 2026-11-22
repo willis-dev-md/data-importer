@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -491,17 +493,28 @@ func TestAdvisoryLockErrorIsNotHeld(t *testing.T) {
 		held()
 	}
 	unlock()
-	// Closed pool: an error, ok false, unlock still safe.
+	// Database unreachable: an error, ok false, unlock still safe, slot freed.
+	badCfg := pool.Config().Copy()
+	badCfg.ConnConfig.Port = 1
+	badCfg.ConnConfig.ConnectTimeout = 2 * time.Second
+	badPool, err := pgxpool.NewWithConfig(ctx, badCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer badPool.Close()
+	bad := store.NewWithOptions(badPool, store.Options{LockConns: 1, LockWait: time.Second})
+	for i := 0; i < 3; i++ { // a leaked slot would turn the 2nd attempt into ErrLockCapacity
+		noop, ok, err := bad.TryAdvisoryLock(ctx, "src")
+		if err == nil || ok || errors.Is(err, store.ErrLockCapacity) {
+			t.Fatalf("unreachable db: ok=%v err=%v, want false and a connect error", ok, err)
+		}
+		if noop == nil {
+			t.Fatal("unlock is nil on error")
+		}
+		noop()
+		noop()
+	}
 	pool.Close()
-	noop, ok, err := s.TryAdvisoryLock(ctx, "src")
-	if err == nil || ok {
-		t.Fatalf("closed pool: ok=%v err=%v, want false and an error", ok, err)
-	}
-	if noop == nil {
-		t.Fatal("unlock is nil on error")
-	}
-	noop()
-	noop()
 	// Cancelled context is also an error.
 	s2, _ := setup(t)
 	cctx, cancel := context.WithCancel(ctx)
@@ -674,5 +687,93 @@ func TestUpsertRawUnique(t *testing.T) {
 	}
 	if c, d, err := s.UpsertRawUnique(ctx, run2, "src", nil); err != nil || len(d) != 0 || c != (store.Counts{}) {
 		t.Errorf("empty = %+v %+v %v", c, d, err)
+	}
+}
+
+func TestAdvisoryLockSlotsBounded(t *testing.T) {
+	ctx := context.Background()
+	_, pool := setup(t)
+	s := store.NewWithOptions(pool, store.Options{LockConns: 2, LockWait: 50 * time.Millisecond})
+	u1, ok, err := s.TryAdvisoryLock(ctx, "a")
+	if err != nil || !ok {
+		t.Fatalf("a: ok=%v err=%v", ok, err)
+	}
+	u2, ok, err := s.TryAdvisoryLock(ctx, "b")
+	if err != nil || !ok {
+		t.Fatalf("b: ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := s.TryAdvisoryLock(ctx, "c"); ok || !errors.Is(err, store.ErrLockCapacity) {
+		t.Fatalf("c: ok=%v err=%v, want ErrLockCapacity", ok, err)
+	}
+	// A source held elsewhere also needs (and frees) a slot: not leaked.
+	u1()
+	u1()
+	held, ok, err := s.TryAdvisoryLock(ctx, "b") // held by u2's session
+	if ok || err != nil {
+		t.Fatalf("b again: ok=%v err=%v, want held", ok, err)
+	}
+	held()
+	for i := 0; i < 5; i++ { // repeated held results must not leak slots
+		h, ok, err := s.TryAdvisoryLock(ctx, "b")
+		if ok || err != nil {
+			t.Fatalf("b again: ok=%v err=%v", ok, err)
+		}
+		h()
+	}
+	u3, ok, err := s.TryAdvisoryLock(ctx, "c")
+	if err != nil || !ok {
+		t.Fatalf("c after release: ok=%v err=%v", ok, err)
+	}
+	u3()
+	u2()
+}
+
+func TestOpenPoolEnv(t *testing.T) {
+	url := testutil.NewDatabaseURL(t)
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	ctx := context.Background()
+	pool, opts, err := store.OpenPool(ctx, url, env(map[string]string{"DB_MAX_CONNS": "3", "DB_LOCK_MAX_CONNS": "5", "DB_LOCK_WAIT": "7s"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if pool.Config().MaxConns != 3 || opts.LockConns != 5 || opts.LockWait != 7*time.Second {
+		t.Fatalf("got max=%d opts=%+v", pool.Config().MaxConns, opts)
+	}
+	pool2, opts2, err := store.OpenPool(ctx, url, env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool2.Close()
+	if opts2 != (store.Options{}) || pool2.Config().MaxConns < 4 {
+		t.Fatalf("defaults: max=%d opts=%+v", pool2.Config().MaxConns, opts2)
+	}
+	for _, bad := range []map[string]string{
+		{"DB_MAX_CONNS": "0"}, {"DB_MAX_CONNS": "x"}, {"DB_LOCK_MAX_CONNS": "-1"},
+		{"DB_LOCK_WAIT": "0s"}, {"DB_LOCK_WAIT": "soon"},
+	} {
+		if p, _, err := store.OpenPool(ctx, url, env(bad)); err == nil {
+			p.Close()
+			t.Errorf("%v accepted", bad)
+		} else if !errors.Is(err, store.ErrConfig) {
+			t.Errorf("%v: err %v does not wrap ErrConfig", bad, err)
+		}
+	}
+}
+
+func TestConnectionBudgetWarning(t *testing.T) {
+	for _, tc := range []struct {
+		work, lock, max int
+		warn            bool
+	}{
+		{4, 8, 100, false}, {92, 8, 100, false}, {93, 8, 100, true}, {100, 1, 100, true},
+	} {
+		msg, warn := store.ConnectionBudgetWarning(tc.work, tc.lock, tc.max)
+		if warn != tc.warn {
+			t.Errorf("%+v: warn=%v", tc, warn)
+		}
+		if warn && (!strings.Contains(msg, fmt.Sprint(tc.work)) || !strings.Contains(msg, fmt.Sprint(tc.lock)) || !strings.Contains(msg, "DB_MAX_CONNS") || !strings.Contains(msg, "DB_LOCK_MAX_CONNS")) {
+			t.Errorf("%+v: message %q", tc, msg)
+		}
 	}
 }

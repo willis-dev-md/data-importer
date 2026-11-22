@@ -200,6 +200,18 @@ Read-time mapping and JSONB filtering are fine for moderate volume. Escape hatch
   `duplicate natural key` row errors and an `aborted` run, not as a silently smaller import. Reading the errors is in
   [import failures](runbooks/import-failures.md).
 
+- **Concurrency and locks (task 019).** The per-source advisory lock is held on a dedicated connection outside the work
+  pool, not on a work connection. Before, a run held one work connection for its lock, so N concurrent runs with a pool
+  of N or fewer connections each held a lock and waited forever for a second connection (reproduced with pools of 1 to 4
+  connections). Now a run waits for a free lock connection up to `DB_LOCK_WAIT`, then fails with `store.ErrLockCapacity`
+  before a run row is created. The lock is released on success, failure, abort, cancel and panic (unit test
+  `TestLockSlotFreedOnEveryExit`). Settings: [operations](operations.md#connection-pool-and-source-locks); decisions:
+  [data model, task 019](data-model.md#decisions-task-019).
+- **Known limit: a killed lock session.** If the lock connection is killed mid-run (for example with
+  `pg_terminate_backend`), Postgres releases the lock but the run keeps going. A second run of the same source can then
+  start and succeed, and its abandoned-run sweep marks the first run `failed` while both write the same source. A run
+  does not yet notice that it lost its lock; task 020 makes it stop. See the [roadmap backlog](roadmap.md#hardening-backlog).
+
 ## 10. Security
 
 - Secrets (API tokens) referenced by env var name in source config, never stored in config or DB.

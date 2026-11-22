@@ -3,6 +3,7 @@
 All notable user-visible changes. Maintained by the `documentor` role. Newest first.
 
 ## Unreleased
+- Concurrent runs no longer deadlock when they outnumber the database pool: source locks use their own connections, tuned with `DB_MAX_CONNS`, `DB_LOCK_MAX_CONNS` and `DB_LOCK_WAIT` (see [docs/operations.md](docs/operations.md#connection-pool-and-source-locks)).
 - Within one import run, a repeated natural key is now a row error (`duplicate natural key`, counted in `failed`) instead of silently overwriting the first record; `--dry-run` reports duplicates too (see [docs/data-model.md](docs/data-model.md#decisions-task-018)).
 - `kind: xlsx` sources (sheets, hidden sheets, column letters, cached formula values, `table:` row pipeline, `context:`) can be applied and run; the Bank of England base rate workbook imports 854 records with 0 row errors (see [docs/sources/boe-baserate.md](docs/sources/boe-baserate.md)).
 - `scripts/demo.sh` imports the ONS L55O fixture and queries it over gRPC on a temporary database (README Quick start has the steps); an end-to-end test (`internal/e2e`) asserts the same counts.
