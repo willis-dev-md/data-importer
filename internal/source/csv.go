@@ -58,14 +58,14 @@ func (a *CSVAdapter) Open(ctx context.Context, cfg *config.Source) (Stream, erro
 		if err != nil {
 			return nil, err
 		}
-		s, err := newCSVStream(ctx, m, m, opts, cfg.NaturalKey)
+		s, err := newCSVStreamCfg(ctx, m, m, opts, cfg)
 		if err != nil {
 			_ = m.Close()
 			return nil, err
 		}
 		return WithLocation(s, cfg, loc), nil
 	}
-	s, err := newCSVStream(ctx, body, body, opts, cfg.NaturalKey)
+	s, err := newCSVStreamCfg(ctx, body, body, opts, cfg)
 	if err != nil {
 		_ = body.Close()
 		return nil, err
@@ -90,14 +90,14 @@ func (a *CSVAdapter) OpenReader(ctx context.Context, cfg *config.Source, r io.Re
 		if err != nil {
 			return nil, err
 		}
-		s, err := newCSVStream(ctx, m, m, opts, cfg.NaturalKey)
+		s, err := newCSVStreamCfg(ctx, m, m, opts, cfg)
 		if err != nil {
 			_ = m.Close()
 			return nil, err
 		}
 		return s, nil
 	}
-	return newCSVStream(ctx, r, nil, opts, cfg.NaturalKey)
+	return newCSVStreamCfg(ctx, r, nil, opts, cfg)
 }
 
 // NewCSVReader reads CSV rows from r (no fetching, no closing of r).
@@ -119,6 +119,13 @@ type csvStream struct {
 	done   bool
 	meta   map[string]string
 	pushed *rawRec // a row read ahead (end of an `until` preamble), returned by the next readRecord
+
+	// Row pipeline (`table:` / `context:`); nil for a plain csv source.
+	pipe  *Pipeline
+	cfg   *config.Source
+	opts  config.CSV
+	base  map[string]string // static context
+	queue []Item            // output rows of the current input row
 }
 
 type rawRec struct {
@@ -143,6 +150,16 @@ func decoderFor(r io.Reader, enc string) (io.Reader, error) {
 }
 
 func newCSVStream(ctx context.Context, r io.Reader, closer io.Closer, opts config.CSV, nkey []string) (*csvStream, error) {
+	return newCSVStreamP(ctx, r, closer, opts, nkey, nil)
+}
+
+// newCSVStreamCfg is newCSVStream for a configured source: its natural key and, when it has `table:` or
+// `context:`, the row pipeline.
+func newCSVStreamCfg(ctx context.Context, r io.Reader, closer io.Closer, opts config.CSV, cfg *config.Source) (*csvStream, error) {
+	return newCSVStreamP(ctx, r, closer, opts, cfg.NaturalKey, cfg)
+}
+
+func newCSVStreamP(ctx context.Context, r io.Reader, closer io.Closer, opts config.CSV, nkey []string, cfg *config.Source) (*csvStream, error) {
 	dr, err := decoderFor(r, opts.EncodingName())
 	if err != nil {
 		return nil, err
@@ -154,6 +171,17 @@ func newCSVStream(ctx context.Context, r io.Reader, closer io.Closer, opts confi
 		delim:  opts.DelimiterRune(),
 		nkey:   nkey,
 		first:  true,
+	}
+	if cfg != nil && (len(cfg.Table) > 0 || len(cfg.Context) > 0) {
+		// The same pipeline implementation as xlsx (pipeline.go); csv has one "sheet", so its state spans the file.
+		if s.pipe, err = NewPipeline(cfg.Table); err != nil {
+			return nil, err
+		}
+		s.cfg, s.opts = cfg, opts
+		s.base = make(map[string]string, len(cfg.Context))
+		for k, v := range cfg.Context {
+			s.base[k] = v
+		}
 	}
 	if h, ok := r.(interface{ SHA256() string }); ok {
 		s.sum = h
@@ -269,6 +297,17 @@ func sortedKeys(m map[string]string) []string {
 func (s *csvStream) Meta() map[string]string { return s.meta }
 
 func (s *csvStream) checkKey() error {
+	if s.pipe != nil {
+		// Validate the pipeline and natural key against the columns we now know, with the same rules as config.
+		c2 := *s.cfg
+		o2 := s.opts
+		o2.Columns = append([]string(nil), s.names...)
+		c2.CSV = &o2
+		if err := c2.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}
 	have := map[string]bool{}
 	for _, n := range s.names {
 		have[n] = true
@@ -289,6 +328,11 @@ func (s *csvStream) checkKey() error {
 
 // Next implements Stream.
 func (s *csvStream) Next() (Item, bool) {
+	if len(s.queue) > 0 {
+		it := s.queue[0]
+		s.queue = s.queue[1:]
+		return it, true
+	}
 	if s.done {
 		return Item{}, false
 	}
@@ -326,6 +370,15 @@ func (s *csvStream) Next() (Item, bool) {
 		for i, f := range fields {
 			m[s.names[i]] = f
 		}
+		if s.pipe != nil {
+			s.runPipe(pos, raw, m)
+			if len(s.queue) > 0 {
+				it := s.queue[0]
+				s.queue = s.queue[1:]
+				return it, true
+			}
+			continue // the pipeline dropped the row
+		}
 		parts := make([]string, len(s.nkey))
 		for i, k := range s.nkey {
 			var v string
@@ -346,6 +399,50 @@ func (s *csvStream) Next() (Item, bool) {
 		m["_meta"] = meta
 		m["_source"] = map[string]any{"line": pos}
 		return Item{Record: &Record{Position: pos, Fields: m, NaturalKey: record.Key(parts...)}}, true
+	}
+}
+
+// runPipe pushes one input row through the row pipeline and queues the output rows (or one RowError).
+func (s *csvStream) runPipe(pos int64, raw string, fields map[string]any) {
+	out, err := s.pipe.Run(pipeRow{fields: fields, ctx: s.base})
+	if err != nil {
+		s.queue = append(s.queue, Item{Error: &RowError{Position: pos, Raw: raw, Reason: err.Error()}})
+		return
+	}
+	meta := s.meta
+	if meta == nil {
+		meta = map[string]string{}
+	}
+	for _, r := range out {
+		parts := make([]string, len(s.nkey))
+		bad := ""
+		for i, k := range s.nkey {
+			var v any
+			if mk, ok := strings.CutPrefix(k, config.MetaPrefix); ok {
+				v = meta[mk]
+			} else {
+				v = keyValue(k, r)
+			}
+			t, _ := textOf(v)
+			if strings.TrimSpace(t) == "" {
+				bad = fmt.Sprintf("natural key field %q is empty", k)
+				break
+			}
+			parts[i] = t
+		}
+		if bad != "" {
+			s.queue = append(s.queue, Item{Error: &RowError{Position: pos, Raw: raw, Reason: bad}})
+			continue
+		}
+		ctxMap := make(map[string]any, len(r.ctx))
+		for k, v := range r.ctx {
+			ctxMap[k] = v
+		}
+		f := r.fields
+		f["_ctx"] = ctxMap
+		f["_meta"] = meta
+		f["_source"] = map[string]any{"line": pos}
+		s.queue = append(s.queue, Item{Record: &Record{Position: pos, Fields: f, NaturalKey: record.Key(parts...)}})
 	}
 }
 

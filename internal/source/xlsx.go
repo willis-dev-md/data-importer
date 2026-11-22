@@ -900,17 +900,7 @@ func (s *xlsxStream) handleRow(pl sheetPlan, cells []string) {
 		parts := make([]string, len(s.cfg.NaturalKey))
 		allEmpty := true
 		for i, k := range s.cfg.NaturalKey {
-			var v any
-			if name, ok := strings.CutPrefix(k, config.CtxPrefix); ok {
-				if cv, ok := r.ctx[name]; ok {
-					v = cv
-				}
-			} else if fv, ok := r.fields[k]; ok {
-				v = fv
-			} else if cv, ok := r.ctx[k]; ok {
-				v = cv
-			}
-			t, _ := textOf(v)
+			t, _ := textOf(keyValue(k, r))
 			if strings.TrimSpace(t) != "" {
 				allEmpty = false
 			}

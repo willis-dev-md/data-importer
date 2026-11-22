@@ -61,8 +61,6 @@ func TestParseXLSXSource(t *testing.T) {
 		{"header_row without header", xl + "xlsx: {sheet: S, header: false, header_row: 2, columns: {A: k}}\n", "xlsx.header_row: only valid with header: true"},
 		{"csv block on xlsx", xl + "xlsx: {sheet: S}\ncsv: {delimiter: ';'}\n", "csv: only valid for kind csv"},
 		{"xlsx block on csv", "id: a\nkind: csv\nlocation: /x.csv\nnatural_key: [k]\nxlsx: {sheet: S}\n", "xlsx: only valid for kind xlsx"},
-		{"table on csv", "id: a\nkind: csv\nlocation: /x.csv\nnatural_key: [k]\ntable: [{drop_if_empty: [k]}]\n", "table: the row pipeline is only supported for kind xlsx"},
-		{"context on csv", "id: a\nkind: csv\nlocation: /x.csv\nnatural_key: [k]\ncontext: {a: b}\n", "context: static context is only supported for kind xlsx"},
 		{"unsupported kind lists xlsx", "id: a\nkind: json\nlocation: /x\nnatural_key: [k]\n", "supported: csv, xlsx"},
 		// context
 		{"context scalars", xl + "xlsx: {sheet: S}\ncontext: {year: 2026, status: provisional, ok: true}\n", ""},

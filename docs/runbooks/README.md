@@ -21,6 +21,7 @@ created by the task that introduces the behaviour.
 | [mapping-validation-errors.md](mapping-validation-errors.md) | `importer mapping validate` prints issues or exits 1/2; every validation code with fix; runtime field errors (MISSING_REQUIRED, TYPE_MISMATCH, PARSE_FAILED, VALIDATION_FAILED) |
 | [run-the-grpc-server.md](run-the-grpc-server.md) | start/stop `importer serve` (plaintext, TLS), health `SERVING`/`NOT_SERVING`, reflection, graceful shutdown; startup errors; `ListRecords`/`GetRecord` checks, short pages and `next_page_token`, `SCAN_LIMIT`; data-call errors by code; `mapping_errors` in responses; `Internal` in the server log |
 | [demo-and-smoke-test.md](demo-and-smoke-test.md) | run `scripts/demo.sh` (ONS CSV to Postgres to gRPC), expected output, leftover processes after an interrupted run; the e2e test `go test ./internal/e2e`; release smoke-test checklist |
+| [uk-hpi-monthly-update.md](uk-hpi-monthly-update.md) | monthly run of `uk-hpi-average-prices` and `uk-hpi-property-type` (files appear about two months late); expected summary and counts; `unchanged_file`; a month that is missing; sizing; scheduler not implemented yet |
 
 ## Seeds for later runbooks
 
@@ -32,4 +33,4 @@ Facts from task logs, not yet verified as operator procedures. The owning task c
   covered in import-failures.md).
 
 Planned (created by the tasks in `factory/tasks/`):
-uk-hpi-monthly-update, ashe-annual-release.
+ashe-annual-release.

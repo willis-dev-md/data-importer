@@ -615,19 +615,7 @@ func (s *Source) validateXLSX(bad func(path, format string, args ...any)) {
 			seenName[name] = l
 		}
 	}
-	// Context.
-	ctxNames := map[string]bool{SheetContextName: true}
-	for k := range s.Context {
-		switch {
-		case strings.TrimSpace(k) == "":
-			bad("context", "variable name must not be empty")
-		case k == SheetContextName:
-			bad("context."+k, "%q is reserved for the sheet name", k)
-		case strings.HasPrefix(k, "_"):
-			bad("context."+k, "variable name must not start with an underscore")
-		}
-		ctxNames[k] = true
-	}
+	ctxNames := s.validateContext(bad)
 	// Pipeline and natural key.
 	in, known := x.InputFields()
 	out, sets, outKnown := s.Table.CheckTable(in, known, bad)
@@ -654,6 +642,24 @@ func (s *Source) validateXLSX(bad func(path, format string, args ...any)) {
 			bad(path, "%q is neither a field after the table pipeline (%s) nor a context variable", k, strings.Join(out, ", "))
 		}
 	}
+}
+
+// validateContext checks the static `context:` variables and returns the names of all context variables
+// (the reserved sheet name included).
+func (s *Source) validateContext(bad func(path, format string, args ...any)) map[string]bool {
+	ctxNames := map[string]bool{SheetContextName: true}
+	for k := range s.Context {
+		switch {
+		case strings.TrimSpace(k) == "":
+			bad("context", "variable name must not be empty")
+		case k == SheetContextName:
+			bad("context."+k, "%q is reserved for the sheet name", k)
+		case strings.HasPrefix(k, "_"):
+			bad("context."+k, "variable name must not start with an underscore")
+		}
+		ctxNames[k] = true
+	}
+	return ctxNames
 }
 
 func sortedSet(m map[string]bool) []string {

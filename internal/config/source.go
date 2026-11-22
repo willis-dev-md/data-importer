@@ -183,11 +183,13 @@ func (s *Source) Validate() error {
 		if s.XLSX != nil {
 			bad("xlsx", "only valid for kind xlsx")
 		}
-		if len(s.Table) > 0 {
-			bad("table", "the row pipeline is only supported for kind xlsx")
-		}
-		if len(s.Context) > 0 {
-			bad("context", "static context is only supported for kind xlsx")
+		if s.Kind != KindCSV {
+			if len(s.Table) > 0 {
+				bad("table", "the row pipeline is only supported for kinds csv and xlsx")
+			}
+			if len(s.Context) > 0 {
+				bad("context", "static context is only supported for kinds csv and xlsx")
+			}
 		}
 	}
 	return errors.Join(errs...)
@@ -251,11 +253,51 @@ func (s *Source) validateCSV(bad func(path, format string, args ...any)) {
 			}
 		}
 	}
+	if len(s.Table) > 0 || len(s.Context) > 0 {
+		s.validateCSVTable(c, bad)
+		return
+	}
 	if len(c.Columns) > 0 {
 		for i, k := range s.NaturalKey {
 			if !seen[k] && !strings.HasPrefix(k, "@") {
 				bad(fmt.Sprintf("natural_key[%d]", i), "%q is not in csv.columns", k)
 			}
+		}
+	}
+}
+
+// validateCSVTable checks `context:` and the row pipeline of a csv source, and checks the natural key against
+// what the pipeline outputs (field names, context or section variables, @ctx.<name>, @meta.<key>).
+func (s *Source) validateCSVTable(c *CSV, bad func(path, format string, args ...any)) {
+	ctxNames := s.validateContext(bad)
+	var in []string
+	known := len(c.Columns) > 0
+	if known {
+		in = c.Columns
+	}
+	out, sets, outKnown := s.Table.CheckTable(in, known, bad)
+	for _, st := range sets {
+		ctxNames[st] = true
+	}
+	have := map[string]bool{}
+	for _, f := range out {
+		have[f] = true
+	}
+	for i, k := range s.NaturalKey {
+		path := fmt.Sprintf("natural_key[%d]", i)
+		switch {
+		case strings.HasPrefix(k, MetaPrefix):
+		case strings.HasPrefix(k, CtxPrefix):
+			name := k[len(CtxPrefix):]
+			if strings.TrimSpace(name) == "" {
+				bad(path, "%q names no context variable", k)
+			} else if !ctxNames[name] {
+				bad(path, "%q is not a context variable (known: %s)", k, strings.Join(sortedSet(ctxNames), ", "))
+			}
+		case strings.HasPrefix(k, "@"):
+			bad(path, "%q is not supported for kind csv with table (use @ctx.<name> or @meta.<key>)", k)
+		case outKnown && !have[k] && !ctxNames[k]:
+			bad(path, "%q is neither a field after the table pipeline (%s) nor a context variable", k, strings.Join(out, ", "))
 		}
 	}
 }

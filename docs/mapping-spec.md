@@ -232,8 +232,10 @@ Steps run in order; the output rows are what is stored. Closed set:
 
 Every stored row also gets `_source: {sheet, row}` (or line number) for traceability.
 
-Implemented for `kind: xlsx` (task 013, `internal/source/pipeline.go`). `table:` and `context:` on a `kind: csv` source
-are rejected at validation, not ignored, until CSV support lands.
+Implemented for `kind: xlsx` (task 013) and `kind: csv` (task 016). Both kinds use ONE shared implementation, `Pipeline` in
+`internal/source/pipeline.go`, so each step behaves the same on either kind. `table:` and `context:` are accepted on
+`kind: csv`; other kinds still reject them at validation (not ignored). A csv file has one "sheet", so its section and
+`fill_down` state spans the whole file.
 - Steps apply in the order listed. A step failure on a row is a `RowError` (the row is not stored and the stream
   continues); steps never panic. Each step has its own unit test (`TestPipelineSkipRows` to `TestPipelineStrip`).
 - Section and `fill_down` state is per sheet. Headings are trimmed; `section.match` is tested only against text;
@@ -244,10 +246,14 @@ are rejected at validation, not ignored, until CSV support lands.
   (`x`, `..`, `1,234`) stay as they are; a literal with more than 15 significant digits that does not fit int64 stays text.
   A column absent from the row is skipped.
 - `natural_key` parts are a field name, a section or context variable name (falling back to `_ctx`), or `@ctx.<name>`.
-  An **empty part is allowed** (a BoE event without a day); only a key whose parts are all empty is a `RowError`.
-  `@meta.` is rejected for xlsx.
+  For xlsx an **empty part is allowed** (a BoE event without a day); only a key whose parts are all empty is a `RowError`.
+  For `kind: csv` **any** empty part is a `RowError` (see the Decision below). `@meta.` is rejected for xlsx.
 - `context:` scalars are stored as strings. `_ctx` holds the context values, `sheet`, and the section variables; a section
   variable overrides a context value, and `sheet` is reserved.
+
+**Decision (task 016, known inconsistency):** the natural-key rule differs between the two kinds. CSV: any empty
+natural-key part is a `RowError` (the existing CSV behaviour, kept unchanged). XLSX: only a key whose parts are all empty
+is a `RowError`. Not unified yet; the shared `Pipeline` does not change this.
 
 ## Source: HTTP JSON API
 

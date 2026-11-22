@@ -139,6 +139,25 @@ func compileStep(st config.Step, state *pipeState) (pipeStep, error) {
 	return nil, fmt.Errorf("empty step")
 }
 
+// keyValue returns the natural-key part k of a pipeline output row: `@ctx.<name>` is a context variable; a plain
+// name is a field, falling back to a context or section variable. nil when it is absent. Shared by the xlsx and
+// csv adapters.
+func keyValue(k string, r pipeRow) any {
+	if name, ok := strings.CutPrefix(k, config.CtxPrefix); ok {
+		if cv, ok := r.ctx[name]; ok {
+			return cv
+		}
+		return nil
+	}
+	if fv, ok := r.fields[k]; ok {
+		return fv
+	}
+	if cv, ok := r.ctx[k]; ok {
+		return cv
+	}
+	return nil
+}
+
 // isEmpty reports whether a cell holds no data: missing, nil, or text with only whitespace.
 func isEmpty(v any) bool {
 	switch x := v.(type) {
