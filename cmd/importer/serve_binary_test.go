@@ -55,7 +55,7 @@ func TestServeServesDataService(t *testing.T) {
 	// A source without a mapping.
 	writeFile(t, dir, "nomap.source.yaml", "id: nomap\nkind: csv\nlocation: "+fixture+"\nnatural_key: [id]\n")
 
-	c.expect(nil, 0, "version 1", "migrate", "up")
+	c.expect(nil, 0, "version 2", "migrate", "up")
 	c.expect(nil, 0, "nomap: source created, mapping none", "sources", "apply", "--dir", dir, "--schema", schema)
 	c.expect(nil, 0, "inserted=642", "run", "--source", "ons-l55o")
 

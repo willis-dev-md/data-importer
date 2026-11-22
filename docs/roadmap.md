@@ -8,7 +8,7 @@ Status as of task 012. Milestones M0 to M5 are done; the task numbers are in the
 | M1 | Store + model | Schema from [data-model](data-model.md), store package, integration tests | done: tasks 002, 003 |
 | M2 | CSV adapter | Configurable parsing, headerless files, metadata preamble, natural key, error capture | done: tasks 004, 005 |
 | M2b | XLSX adapter + row pipeline | Sheets/hidden sheets, column letters, section/fill_down/unpivot/normalize, file hash + conditional fetch, `source_files`, reparse. Acceptance fixture: BoE base rate | remaining: task 013 |
-| M2c | Files and URLs | File retention + change detection + reparse (014), zip archives and `resolve` for changing URLs (015) | remaining: tasks 014, 015 |
+| M2c | Files and URLs | File retention + change detection + reparse (014), zip archives and `resolve` for changing URLs (015) | remaining: task 015 |
 | M3 | Importer core | Runs, chunked idempotent upsert, counts, shape tracking, advisory lock | done: task 008 (CLI in task 009) |
 | M4 | Mapping engine | Parser, validator, transforms, `period` type, `@meta` refs, error model, dry-run | done: tasks 006 (canonical v2, parser, validator), 007 (evaluator) |
 | M5 | gRPC read API | `DataService` with filters, keyset paging, mapping on read | done: tasks 010 (skeleton), 011 (DataService) |
@@ -24,7 +24,7 @@ that work.
 
 Remaining work, in order of the table:
 - M2b: XLSX adapter and row pipeline (task 013).
-- M2c: fetched-file retention, change detection and reparse (task 014); zip archives and location resolution (task 015).
+- M2c: zip archives and location resolution (task 015). Fetched-file retention is still open (backlog).
 - M6: HTTP JSON adapter.
 - M7: scheduler and the source and import services.
 - M7b: source groups.
@@ -50,7 +50,8 @@ Known limitations of the task 009 CLI, left as future work:
 - TLS for lock connections is not tested (the work pool's TLS is not changed by task 019).
 - The abort and panic lock-release paths (task 019) are covered by unit tests only (`TestLockSlotFreedOnEveryExit`), not through the real binary.
 - `importer run` prints `failed=N`, which now includes duplicate natural keys, but not the sample reasons in `RunResult.DuplicateSamples` (task 018 follow-up: print them after the summary line in `cmd/importer/runcmd.go`).
-- `TestFetchHTTPS/timeout` in `internal/source` flaked once under load: it relies on a timing assumption; make it deterministic.
+- No retention or cleanup for fetched files (`source_files`, the `FILE_STORE_DIR` directory): every fetched file is kept. Task 014 left it out ([data model](data-model.md#decisions-task-014)).
+- `FILE_STORE_DIR` defaults to `data/files` relative to the working directory: a run from another directory silently starts an empty store, and a later `reparse` fails with `stored file is missing`. Use an absolute path, or make the default absolute.
 
 XLSX adapter (task 013), known limits that the adapter does not detect:
 - A `<c>` placed outside `<sheetData>` is silently ignored.
@@ -64,5 +65,6 @@ XLSX adapter (task 013), known limits that the adapter does not detect:
 - **Validated and pushed:** tasks 001 to 013 (M0 to M5, CSV/ONS, mapping, importer, CLI, gRPC read API, e2e demo, XLSX adapter with the Bank of England fixture end to end).
 - **Validated:** task 018 (duplicate natural keys within a run are row errors; dry run detects them too). Docs were updated by the documentor ([data-model](data-model.md#decisions-task-018), [design](design.md#9-failure-handling)). 
 - **Validated:** task 019 (source locks on their own connections; the pool cannot deadlock on concurrent runs). Docs were updated by the documentor ([operations](operations.md#connection-pool-and-source-locks), [design](design.md#9-failure-handling), [data model](data-model.md#decisions-task-019)). 
-- **Next tasks:** 014 (file retention, change detection, reparse), 015 (zip archives and URL resolution), 016 (UK HPI), 017 (ASHE Table 20), then 020 (lock loss detection: a run stops when its lock session is lost; backlog above). Specs are in `factory/tasks/`.
+- **Validated:** task 014 (fetched files kept by SHA-256, conditional fetch with `unchanged_file`, `importer reparse`; no retention yet). Docs were updated by the documentor ([data model](data-model.md#decisions-task-014), [design](design.md#import), [operations](operations.md#importer-reparse)).
+- **Next tasks:** 015 (zip archives and URL resolution), 016 (UK HPI), 017 (ASHE Table 20), then 020 (lock loss detection: a run stops when its lock session is lost; backlog above). Specs are in `factory/tasks/`.
 - **Housekeeping for you:** fill `factory/metrics/prices.json` (cost shows n/a); decide whether to keep the docs-role budget (documentor 20, runbook-refiner 25 tool calls); the Hardening backlog above lists known limits.

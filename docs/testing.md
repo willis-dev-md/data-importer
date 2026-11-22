@@ -28,7 +28,7 @@ and keys. A test that terminated other packages' lock sessions caused a flaky 60
 ## End-to-end test and demo (task 012)
 `internal/e2e/e2e_test.go` (`TestONSSliceEndToEnd`) builds the real binary (`cmd/importer`) and runs it against an ephemeral
 database from `internal/testutil`. It asserts, in order:
-1. `migrate up` prints `version 1`.
+1. `migrate up` prints `version 2`.
 2. `sources apply` on a temp copy of `docs/examples/ons-l55o.source.yaml` and `ons-l55o.mapping.yaml`, whose `location` is `file://` plus `testdata/ons/l55o.csv`, prints `ons-l55o: source created`.
 3. `run --source ons-l55o` prints `inserted=642`.
 4. `serve` on `127.0.0.1:0` (plaintext) answers `ListRecords` from a real gRPC client with exact counts: 642 (all), 454 (`period_type` month), 37 (year), 151 (quarter), 108 (month and `value` >= 3.5).
@@ -50,6 +50,10 @@ Limits, found in validation:
 **Decisions (task 012).**
 - The proxy variables point at a closed port (`127.0.0.1:1`), so any outbound dial by the binary fails the run instead of going direct.
 - `scripts/demo-client` is a helper for the demo only, used when `grpcurl` is absent; it is not a product command.
+
+## Decisions (task 014)
+- **`TestFetchHTTPS/timeout` flake fixed** (`internal/source/fetch_test.go`): the `/slow` handler used to return an empty 200 on its own timer, so a 100 ms client timeout could race it. The handler now blocks until the test releases it (before the server closes), so no response can arrive first. The test waits at most 30 s and fails only on a hang. The old failure could not be reproduced on the worker's machine; `-race -count=50` and `-count=100 -cpu 1` under CPU load pass with the new handler.
+- **Demo files:** `scripts/demo.sh` uses a temporary `FILE_STORE_DIR` removed by its exit trap; `data/` is not created by the demo.
 
 ## Decisions (task 001, scaffold)
 - **Test database:** `scripts/testdb.sh start|stop` runs an ephemeral Postgres 16 (as `postgres` via `runuser` when root); state is kept in `/tmp/data-importer-testdb.<uid>.state`. `internal/testutil` offers `DatabaseURL`, `NewDatabaseURL` (fresh database per test) and `DB` (pgx pool). Tests skip when `DATABASE_URL` is unset, but FAIL when `CI_REQUIRE_DB=1` (used by `scripts/validate.sh`).

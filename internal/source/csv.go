@@ -55,6 +55,21 @@ func (a *CSVAdapter) Open(ctx context.Context, cfg *config.Source) (Stream, erro
 	return s, nil
 }
 
+// FetchOptions implements FileAdapter.
+func (a *CSVAdapter) FetchOptions(*config.Source) FetchOptions { return a.Fetch.WithDefaults() }
+
+// OpenReader implements FileAdapter: the same parse as Open, from r (streamed, not buffered).
+func (a *CSVAdapter) OpenReader(ctx context.Context, cfg *config.Source, r io.Reader) (Stream, error) {
+	if cfg == nil || cfg.Kind != config.KindCSV {
+		return nil, errors.New("csv adapter: source kind is not csv")
+	}
+	var opts config.CSV
+	if cfg.CSV != nil {
+		opts = *cfg.CSV
+	}
+	return newCSVStream(ctx, r, nil, opts, cfg.NaturalKey)
+}
+
 // NewCSVReader reads CSV rows from r (no fetching, no closing of r).
 func NewCSVReader(ctx context.Context, r io.Reader, opts config.CSV, naturalKey []string) (Stream, error) {
 	return newCSVStream(ctx, r, nil, opts, naturalKey)

@@ -9,6 +9,7 @@
 | `AUTH_TOKENS_FILE` | token -> roles/sources map |
 | `IMPORT_CONCURRENCY` | max simultaneous import runs (default 4) |
 | `SOURCES_DIR` | directory of source + mapping YAML; default for `importer sources apply --dir` |
+| `FILE_STORE_DIR` | directory that keeps fetched files by SHA-256 (`<dir>/<aa>/<sha256>`); default `data/files`, **relative to the working directory**; created if missing; not a directory = exit 2. Run from another directory and you get an empty store: a later `reparse` then fails with `stored file is missing`, so prefer an absolute path. No cleanup exists yet ([details](#importer-reparse)) |
 | `SCAN_LIMIT` | `importer serve` only: raw rows one `ListRecords` call may map, default `50000`; must be a positive integer, otherwise `importer serve` exits 2 before it connects to the database ([details](#importer-serve)) |
 | `DB_MAX_CONNS` | work pool size, default `max(4, NumCPU)`; positive integer, otherwise exit 2 ([details](#connection-pool-and-source-locks)) |
 | `DB_LOCK_MAX_CONNS` | lock connections per process (concurrent source locks), default `8`; positive integer ([details](#connection-pool-and-source-locks)) |
@@ -79,10 +80,9 @@ is kept in the `schema_migrations` table. Each form prints the resulting version
 Output and exit codes, run against an empty Postgres 16:
 
     $ importer migrate version     -> version 0   (exit 0)
-    $ importer migrate up          -> version 1   (exit 0)
-    $ importer migrate up          -> version 1   (exit 0, nothing to do)
-    $ importer migrate down        -> version 0   (exit 0)
-    $ importer migrate down        -> version 0   (exit 0, no-op)
+    $ importer migrate up          -> version 2   (exit 0)
+    $ importer migrate up          -> version 2   (exit 0, nothing to do)
+    $ importer migrate down        -> version 1   (exit 0)
     $ importer migrate up         # DATABASE_URL unset
     importer migrate: DATABASE_URL is not set                                  (exit 1)
     $ importer migrate up         # nothing listening
@@ -149,6 +149,51 @@ Real output, first run, repeat run, and a dry run on an empty database:
     $ importer run --source nope         -> importer run: source "nope": not found           (exit 1)
     $ env -u DATABASE_URL importer run --source ons-l55o
     importer run: DATABASE_URL is not set                                                    (exit 2)
+
+### `importer reparse`
+`importer reparse --source <id> [--run <id>]` parses again the file that a run stored: the latest run of the source that has a file, or run `<id>` when given. It uses the current `sources.config`, makes **no network request** (it works with the source server down), takes the source lock, writes a new run with `trigger=manual` and `file_id` of that file, and prints the same summary line as `run`. Needs `DATABASE_URL`; `FILE_STORE_DIR` is read as for `run` ([configuration](#configuration-env)).
+
+| Exit | Meaning |
+|---|---|
+| 0 | run succeeded (`succeeded`) |
+| 1 | run `failed` or `aborted`; unknown source or run; a run of another source; no stored file for the source; stored file missing (`stored file is missing`) or corrupt (`stored file is corrupt (SHA-256 mismatch)`) |
+| 2 | usage: missing `--source`, extra argument, `--run` not a positive integer, `--dry-run` (not supported), unusable `FILE_STORE_DIR`, missing `DATABASE_URL` |
+| 3 | another run of the source holds the lock |
+
+Real output of the usage cases, with `FILE_STORE_DIR` set to a temporary directory and `DATABASE_URL` unset (the directory name changes per run):
+
+<!-- verify -->
+```bash
+set -u
+D=$(mktemp -d)
+trap 'rm -rf "$D"' EXIT
+go build -o "$D/importer" ./cmd/importer
+export FILE_STORE_DIR="$D/files"
+expect2() { rc=0; env -u DATABASE_URL "$D/importer" reparse "$@" || rc=$?; echo "exit $rc"; test "$rc" -eq 2; }
+expect2
+expect2 --source ons-l55o
+expect2 --source ons-l55o --dry-run
+expect2 --source ons-l55o --run 0
+```
+
+`--dry-run` is not supported on `reparse` (only `run` has it): it exits 2 with the usage text shown for the third case.
+
+    usage: importer reparse --source <id> [--run <id>]
+    exit 2
+    importer reparse: file store: /tmp/tmp.N033tHx7oM/files
+    importer reparse: DATABASE_URL is not set
+    exit 2
+    flag provided but not defined: -dry-run
+    Usage of reparse:
+      -run int
+    	run whose stored file to parse again (default: the source's latest run with a file)
+      -source string
+    	source id
+    exit 2
+    usage: importer reparse --source <id> [--run <id>]
+    exit 2
+
+The successful path (a real reparse of a stored file, with the source server stopped) is in [data-model, task 014](data-model.md#decisions-task-014) as validator evidence; it is UNVERIFIED in this document.
 
 **Difference to `migrate`:** `importer migrate` exits **1** when `DATABASE_URL` is missing (older behaviour, kept); the
 newer commands (`sources apply`, `run`) exit **2**.

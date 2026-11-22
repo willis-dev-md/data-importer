@@ -48,7 +48,7 @@ scripts/demo.sh
     ==> starting a temporary Postgres
     ==> building the importer
     ==> migrate up
-    version 1
+    version 2
     ==> sources apply
     ons-l55o: source created, mapping v1 created
     ==> run (import the fixture)
@@ -92,7 +92,7 @@ scripts/demo.sh
 
     ==> done; stopping the server and removing the temporary database
 
-`inserted=642 ... failed=0` is the import of the whole fixture; each of the three calls asks for a page of 3 records.
+`inserted=642 ... failed=0` is the import of the whole fixture; each of the three calls asks for a page of 3 records. The `run` step also writes `importer run: file store: <directory>` to stderr (task 014); that line is UNVERIFIED in this block because the demo was not re-run for this document.
 
 ### Step by step
 
@@ -106,7 +106,7 @@ and `run` report `unchanged` instead of `inserted`; the script only checks that 
 
 1. Build the binary: `go build -o "$D/importer" ./cmd/importer` (the same command the e2e test uses; `make build` writes `bin/importer` instead).
 2. Make a source directory: copy the ONS mapping and write the source with its `location` pointed at the fixture.
-3. `importer migrate up` prints `version 1`.
+3. `importer migrate up` prints `version 2`.
 4. `importer sources apply --dir "$D" --schema canonical-schema.yaml` registers the source and mapping v1.
 5. `importer run --source ons-l55o` imports the fixture (`inserted=642`).
 6. `GRPC_ADDR=127.0.0.1:0 TLS_CERT_FILE= TLS_KEY_FILE= importer serve` serves plaintext gRPC on a random port; the log line with `addr=` gives the address. The e2e test stops it with SIGTERM and expects exit 0.
@@ -142,7 +142,7 @@ go run ./scripts/demo-client -addr "$ADDR" -size 3 | head -n 4
 
 Real output of that script (the `head -n 4` cuts the JSON response to its first four lines; the address and timestamps change per run):
 
-    version 1
+    version 2
     ons-l55o: source created, mapping v1 created
     source=ons-l55o status=succeeded inserted=642 updated=0 unchanged=0 failed=0 run=1 duration=50ms
     serving on 127.0.0.1:45481
@@ -200,7 +200,7 @@ sed "s#^location:.*#location: $PWD/testdata/ons/l55o.csv#" docs/examples/ons-l55
 rm -r "$D"
 ```
 
-    version 1
+    version 2
     ons-l55o: source created, mapping v1 created
     source=ons-l55o status=succeeded inserted=0 updated=0 unchanged=0 failed=0 run=dry-run duration=11ms
     source=ons-l55o status=succeeded inserted=642 updated=0 unchanged=0 failed=0 run=1 duration=59ms

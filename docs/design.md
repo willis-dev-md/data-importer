@@ -80,8 +80,7 @@ recomputes `next_run_at` immediately. A source can be paused with `enabled: fals
 ### Import
 1. `importer run --source <id>` (or `ImportService.StartImport`).
 2. Load source config; create `import_runs(status=running)`.
-2a. **Change detection:** conditional fetch (ETag / Last-Modified) and SHA-256 of the file; if identical to the
-    last successful run's file, close the run as `unchanged_file` without parsing.
+2a. **Change detection:** conditional fetch: `If-None-Match` / `If-Modified-Since` from the last successful run's stored ETag / Last-Modified, when `change_detection` lists them. A `304` closes the run as `unchanged_file` without parsing. After a `200` the SHA-256 is computed and the file stored once per source and hash ([data-model](data-model.md#decisions-task-014)); the run closes as `unchanged_file` without parsing only when `change_detection` lists `content_hash` and the SHA-256 equals the last successful run's file.
 3. Adapter yields records; for each compute `natural_key` (JSON array of key parts) and `content_hash`
    (SHA-256 of canonical JSON); see [data-model](data-model.md#decisions-task-003).
 4. Upsert `raw_records` on `(source_id, natural_key)` (`store.UpsertRaw`); when `content_hash` is unchanged the
@@ -102,7 +101,7 @@ whole run unless `max_error_ratio` is exceeded.
   created) only when the lock is held elsewhere; an error from the lock attempt itself fails the call with that error.
   `DryRun` takes no lock, creates no run row (`RunID` 0) and writes nothing; only `Total`, `Failed`, `Shape` and
   `SourceMeta` are filled.
-- **Statuses:** `running` -> `succeeded`, `failed` or `aborted`. `unchanged_file` is reserved for change detection (task 014).
+- **Statuses:** `running` -> `succeeded`, `failed` or `aborted`. `unchanged_file` is set by change detection (task 014): no parse work, zero counts.
 - **Counts:** `inserted`, `updated`, `unchanged` from `UpsertRaw`; `failed` counts rows that became `import_errors`.
 - **Row errors:** adapter `RowError`s, records with an empty natural key, and records whose strings (values or keys)
   contain a NUL byte (`\u0000`, not storable as jsonb) are written to `import_errors` and counted in `failed`; the

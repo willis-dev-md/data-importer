@@ -27,7 +27,7 @@ Expected output (real, first run; record bodies shortened, see the note under th
 ==> starting a temporary Postgres
 ==> building the importer
 ==> migrate up
-version 1
+version 2
 ==> sources apply
 ons-l55o: source created, mapping v1 created
 ==> run (import the fixture)

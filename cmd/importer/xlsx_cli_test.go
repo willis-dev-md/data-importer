@@ -32,10 +32,12 @@ func TestCLIXLSXSource(t *testing.T) {
 	writeFile(t, dir, "boe-bank-rate.source.yaml", src)
 	writeFile(t, dir, "boe-bank-rate.mapping.yaml", readFile(t, filepath.Join(repo, "docs", "examples", "boe-baserate.mapping.yaml")))
 
-	c.expect(nil, 0, "version 1", "migrate", "up")
+	c.expect(nil, 0, "version 2", "migrate", "up")
 	c.expect(nil, 0, "boe-bank-rate: source created, mapping v1 created", "sources", "apply", "--dir", dir, "--schema", schema)
 	c.expect(nil, 0, "source=boe-bank-rate status=succeeded inserted=854 updated=0 unchanged=0 failed=0 run=1", "run", "--source", "boe-bank-rate")
-	c.expect(nil, 0, "status=succeeded inserted=0 updated=0 unchanged=854 failed=0 run=2", "run", "--source", "boe-bank-rate")
+	// The BoE example lists content_hash: the same file closes the run as unchanged_file (task 014).
+	c.expect(nil, 0, "status=unchanged_file inserted=0 updated=0 unchanged=0 failed=0 run=2", "run", "--source", "boe-bank-rate")
+	c.expect(nil, 0, "status=succeeded inserted=0 updated=0 unchanged=854 failed=0 run=3", "reparse", "--source", "boe-bank-rate")
 	if n := count(t, pool, `SELECT count(*) FROM raw_records WHERE source_id = 'boe-bank-rate'`); n != 854 {
 		t.Fatalf("raw_records = %d, want 854", n)
 	}

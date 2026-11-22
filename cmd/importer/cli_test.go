@@ -22,11 +22,12 @@ import (
 const secret = "s3cr3t-token-VALUE-4711"
 
 type cli struct {
-	t    *testing.T
-	bin  string
-	url  string
-	env  []string
-	logs strings.Builder // everything the binary printed
+	t     *testing.T
+	bin   string
+	url   string
+	env   []string
+	files string          // FILE_STORE_DIR of every invocation (a temp dir by default)
+	logs  strings.Builder // everything the binary printed
 }
 
 func buildBinary(t *testing.T) string {
@@ -42,7 +43,10 @@ func buildBinary(t *testing.T) string {
 func (c *cli) do(extraEnv []string, args ...string) (stdout, stderr string, code int) {
 	c.t.Helper()
 	cmd := exec.Command(c.bin, args...)
-	cmd.Env = append(append(os.Environ(), "DATABASE_URL="+c.url, "SOURCES_DIR="), c.env...)
+	if c.files == "" {
+		c.files = c.t.TempDir()
+	}
+	cmd.Env = append(append(os.Environ(), "DATABASE_URL="+c.url, "SOURCES_DIR=", "FILE_STORE_DIR="+c.files), c.env...)
 	cmd.Env = append(cmd.Env, extraEnv...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -117,7 +121,7 @@ func TestCLIEndToEnd(t *testing.T) {
 	writeFile(t, dir, "ons-l55o.source.yaml", src)
 	writeFile(t, dir, "ons-l55o.mapping.yaml", readFile(t, filepath.Join(repo, "docs", "examples", "ons-l55o.mapping.yaml")))
 
-	c.expect(nil, 0, "version 1", "migrate", "up")
+	c.expect(nil, 0, "version 2", "migrate", "up")
 
 	// apply: creates the source and mapping v1
 	c.expect(nil, 0, "ons-l55o: source created, mapping v1 created", "sources", "apply", "--dir", dir, "--schema", schema)

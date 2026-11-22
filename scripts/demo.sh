@@ -47,6 +47,8 @@ if [ "$STARTED_DB" = 0 ]; then
 fi
 export DATABASE_URL="$DB_URL"
 export SOURCES_DIR=
+# Fetched files go under the temp dir (removed on exit), never into the working tree.
+export FILE_STORE_DIR="$WORK/files"
 
 echo "==> building the importer"
 go build -o "$WORK/importer" ./cmd/importer

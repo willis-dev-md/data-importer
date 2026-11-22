@@ -31,5 +31,5 @@ docs/mapping-spec.md (Archives, Location resolution as implemented); CHANGELOG.m
 docs/runbooks/source-url-not-found.md (resolve failures, the URLs tried, blocked network hosts; link to blocked-network-host.md)
 
 ## Status
-pending
+in-progress
 ## Log

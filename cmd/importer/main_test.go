@@ -62,9 +62,10 @@ func TestMigrateCommand(t *testing.T) {
 		{"bad direction", []string{"sideways"}, url, 2, "", "unknown direction"},
 		{"unreachable", []string{"up"}, "postgres://u:p@127.0.0.1:1/db?sslmode=disable&connect_timeout=2", 1, "", "importer migrate up"},
 		{"version before", []string{"version"}, url, 0, "version 0", ""},
-		{"up", []string{"up"}, url, 0, "version 1", ""},
-		{"up twice", []string{"up"}, url, 0, "version 1", ""},
-		{"down", []string{"down"}, url, 0, "version 0", ""},
+		{"up", []string{"up"}, url, 0, "version 2", ""},
+		{"up twice", []string{"up"}, url, 0, "version 2", ""},
+		{"down one step", []string{"down"}, url, 0, "version 1", ""},
+		{"down again", []string{"down"}, url, 0, "version 0", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

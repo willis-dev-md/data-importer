@@ -14,7 +14,7 @@ Reference: the `importer serve` section of [operations.md](../operations.md).
 - A health client and a data client. Neither `grpc_health_probe` nor `grpcurl` was installed when this was verified, so small Go clients were used (see Verify). `openssl` was installed and is used for the certificate.
 
 ## Steps
-1. Build and migrate. *(expected: `version 1` from `migrate up` on a fresh database; your version may differ)*
+1. Build and migrate. *(expected: `version 2` from `migrate up` on a fresh database; your version may differ)*
 ```bash
 make build
 eval "$(scripts/testdb.sh start)"   # local only; in production set DATABASE_URL yourself

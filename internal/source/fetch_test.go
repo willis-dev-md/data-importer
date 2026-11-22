@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -67,14 +68,15 @@ func TestFetchHTTPS(t *testing.T) {
 		http.Redirect(w, r, "/data.csv", http.StatusFound)
 	})
 	mux.HandleFunc("/missing", http.NotFound)
+	// /slow never answers until the test releases it: the response cannot arrive before
+	// the client timeout, however slow or loaded the machine is (no race between the two).
+	release := make(chan struct{})
 	mux.HandleFunc("/slow", func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case <-r.Context().Done():
-		case <-time.After(5 * time.Second):
-		}
+		<-release
 	})
 	srv := httptest.NewTLSServer(mux)
 	defer srv.Close()
+	defer close(release) // runs before srv.Close, which waits for handlers
 	opts := FetchOptions{Client: srv.Client()}
 
 	t.Run("ok with redirect and user agent", func(t *testing.T) {
@@ -112,9 +114,23 @@ func TestFetchHTTPS(t *testing.T) {
 	})
 	t.Run("timeout", func(t *testing.T) {
 		o := opts
-		o.Timeout = 100 * time.Millisecond
-		if _, err := Fetch(context.Background(), srv.URL+"/slow", o); err == nil {
-			t.Error("expected timeout error")
+		o.Timeout = 50 * time.Millisecond
+		done := make(chan error, 1)
+		go func() {
+			b, err := Fetch(context.Background(), srv.URL+"/slow", o)
+			if err == nil {
+				_ = b.Close()
+			}
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			var ne net.Error
+			if err == nil || !(errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout())) {
+				t.Errorf("err = %v, want a timeout error", err)
+			}
+		case <-time.After(30 * time.Second): // generous: only a hang fails here
+			t.Error("Fetch did not return after its timeout")
 		}
 	})
 	t.Run("adapter over https", func(t *testing.T) {

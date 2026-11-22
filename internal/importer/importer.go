@@ -36,9 +36,15 @@ const (
 	StatusSucceeded = "succeeded"
 	StatusFailed    = "failed"
 	StatusAborted   = "aborted"
+	// StatusUnchangedFile closes a run whose file is the same as the last successful
+	// run's (HTTP 304 or identical SHA-256): nothing was parsed or written.
+	StatusUnchangedFile = "unchanged_file"
 )
 
 var (
+	// ErrNoFileStore means a reparse or file retention was asked for but the
+	// source cannot provide it (no file store, dry run, or not a file source).
+	ErrNoFileStore = errors.New("reparse needs a file store, a real run and a csv or xlsx source")
 	// ErrAlreadyRunning means another run of the source holds the advisory lock.
 	ErrAlreadyRunning = errors.New("import already running for this source")
 	// ErrAborted means the run ended with status aborted (max_error_ratio exceeded).
@@ -53,12 +59,23 @@ type Store interface {
 	UpsertRawUnique(ctx context.Context, runID int64, sourceID string, recs []record.Record) (store.Counts, []store.Dup, error)
 	RecordErrors(ctx context.Context, runID int64, errs []store.RowError) error
 	TryAdvisoryLock(ctx context.Context, sourceID string) (unlock func(), ok bool, err error)
+	// File retention (used only when Deps.Files is set).
+	RecordFile(ctx context.Context, f store.File) (id int64, created bool, err error)
+	SetRunFile(ctx context.Context, runID, fileID int64) error
+	LastFile(ctx context.Context, sourceID string) (store.File, error)
+	FileForReparse(ctx context.Context, sourceID string, runID int64) (store.File, error)
 }
 
 // Deps are the collaborators of Run. Adapters is keyed by source kind (csv, ...).
+//
+// Files, when set, makes every real run of a source whose adapter is a
+// source.FileAdapter (csv, xlsx) keep the fetched file by SHA-256, detect an
+// unchanged file and allow Options.Reparse. Without it adapters fetch for
+// themselves and nothing is retained.
 type Deps struct {
 	Store    Store
 	Adapters map[string]source.Adapter
+	Files    store.FileStore
 }
 
 // Options tune one run.
@@ -66,6 +83,17 @@ type Options struct {
 	Trigger   string // manual (default) or schedule
 	DryRun    bool   // parse and count only; nothing is written and no lock is taken
 	BatchSize int    // records per upsert; default DefaultBatchSize
+
+	// Reparse runs the adapter again on a file already in the file store, with no
+	// network access and no change detection: a normal run (same lock, duplicate
+	// rules, counts) whose input is the stored file. Needs Deps.Files, a real run
+	// and a file adapter.
+	Reparse *ReparseOptions
+}
+
+// ReparseOptions selects the stored file of a reparse.
+type ReparseOptions struct {
+	RunID int64 // the run whose file to parse again; 0 = the source's latest run that has a file
 }
 
 // RunResult describes a finished run. RunID is 0 for a dry run. In a dry run
@@ -151,6 +179,21 @@ func Run(ctx context.Context, deps Deps, sourceID string, opts Options) (RunResu
 		return RunResult{}, fmt.Errorf("import %q: no adapter for kind %q", sourceID, src.Kind)
 	}
 
+	fa, isFile := adapter.(source.FileAdapter)
+	useFiles := !opts.DryRun && isFile && deps.Files != nil
+	var reparseFile *store.File
+	if opts.Reparse != nil {
+		if !useFiles {
+			return RunResult{}, fmt.Errorf("import %q: %w", sourceID, ErrNoFileStore)
+		}
+		// Resolved under the lock, before a run row exists: a missing file creates no run.
+		f, err := deps.Store.FileForReparse(ctx, sourceID, opts.Reparse.RunID)
+		if err != nil {
+			return RunResult{}, fmt.Errorf("reparse %q: %w", sourceID, err)
+		}
+		reparseFile = &f
+	}
+
 	res := RunResult{DryRun: opts.DryRun}
 	if !opts.DryRun {
 		id, err := deps.Store.CreateRun(ctx, sourceID, opts.Trigger)
@@ -171,8 +214,28 @@ func Run(ctx context.Context, deps Deps, sourceID string, opts Options) (RunResu
 		}()
 	}
 
-	runErr := execute(ctx, deps.Store, adapter, cfg, sourceID, opts, &res)
+	var (
+		open      openFunc
+		unchanged bool
+		runErr    error
+	)
+	if useFiles {
+		var in fileInput
+		if in, runErr = prepareFile(ctx, deps, fa, cfg, sourceID, res.RunID, reparseFile); runErr == nil {
+			open, unchanged = in.open, in.unchanged
+		}
+	} else {
+		open = func() (source.Stream, func() error, error) {
+			s, err := adapter.Open(ctx, cfg)
+			return s, nil, err
+		}
+	}
+	if runErr == nil && !unchanged {
+		runErr = execute(ctx, deps.Store, open, cfg, sourceID, opts, &res)
+	}
 	switch {
+	case runErr == nil && unchanged:
+		res.Status = StatusUnchangedFile
 	case runErr == nil:
 		res.Status = StatusSucceeded
 	case errors.Is(runErr, ErrAborted):
@@ -200,12 +263,12 @@ func Run(ctx context.Context, deps Deps, sourceID string, opts Options) (RunResu
 	return res, nil
 }
 
-func execute(ctx context.Context, st Store, adapter source.Adapter, cfg *config.Source, sourceID string, opts Options, res *RunResult) error {
+func execute(ctx context.Context, st Store, open openFunc, cfg *config.Source, sourceID string, opts Options, res *RunResult) error {
 	batchSize := opts.BatchSize
 	if batchSize <= 0 {
 		batchSize = DefaultBatchSize
 	}
-	stream, err := adapter.Open(ctx, cfg)
+	stream, after, err := open()
 	if err != nil {
 		return fmt.Errorf("open source: %w", err)
 	}
@@ -326,6 +389,12 @@ func execute(ctx context.Context, st Store, adapter source.Adapter, cfg *config.
 	if err := stream.Err(); err != nil {
 		_ = flush() // keep what was parsed so far; the run is failed anyway
 		return fmt.Errorf("read source: %w", err)
+	}
+	if after != nil {
+		if err := after(); err != nil {
+			_ = flush()
+			return fmt.Errorf("read source: %w", err)
+		}
 	}
 	if err := flush(); err != nil {
 		return fmt.Errorf("write batch: %w", err)

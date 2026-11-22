@@ -98,6 +98,34 @@ func (a *XLSXAdapter) Open(ctx context.Context, cfg *config.Source) (Stream, err
 	return openXLSX(ctx, data, sum, cfg, lim)
 }
 
+// FetchOptions implements FileAdapter: the fetch options with the workbook size limit applied.
+func (a *XLSXAdapter) FetchOptions(*config.Source) FetchOptions {
+	lim := a.Limits.withDefaults()
+	fo := a.Fetch
+	if fo.MaxBytes <= 0 || fo.MaxBytes > lim.MaxFileBytes {
+		fo.MaxBytes = lim.MaxFileBytes
+	}
+	return fo
+}
+
+// OpenReader implements FileAdapter. A workbook is a zip archive and is read into memory (bounded by the
+// workbook size limit, as in Open); more than the limit fails with ErrTooLarge.
+func (a *XLSXAdapter) OpenReader(ctx context.Context, cfg *config.Source, r io.Reader) (Stream, error) {
+	if cfg == nil || cfg.Kind != config.KindXLSX || cfg.XLSX == nil {
+		return nil, errors.New("xlsx adapter: source kind is not xlsx")
+	}
+	lim := a.Limits.withDefaults()
+	max := a.FetchOptions(cfg).MaxBytes
+	data, err := io.ReadAll(io.LimitReader(r, max+1))
+	if err != nil {
+		return nil, fmt.Errorf("read workbook: %w", err)
+	}
+	if int64(len(data)) > max {
+		return nil, fmt.Errorf("%w (limit %d bytes)", ErrTooLarge, max)
+	}
+	return openXLSX(ctx, data, "", cfg, lim)
+}
+
 // NewXLSXReader reads an xlsx workbook held in memory (no fetching), for callers that already have the bytes.
 func NewXLSXReader(ctx context.Context, data []byte, cfg *config.Source, lim XLSXLimits) (Stream, error) {
 	if cfg == nil || cfg.Kind != config.KindXLSX || cfg.XLSX == nil {

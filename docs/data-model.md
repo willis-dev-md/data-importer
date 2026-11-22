@@ -65,7 +65,7 @@ CREATE TABLE source_files (                 -- fetched files kept for reparse an
   size_bytes    bigint NOT NULL,
   etag          text,
   last_modified timestamptz,
-  storage_ref   text NOT NULL,               -- object store key / large object / path
+  storage_ref   text NOT NULL,               -- dir:<aa>/<sha256>, informational only (task 014)
   fetched_at    timestamptz NOT NULL DEFAULT now(),
   UNIQUE (source_id, sha256)
 );
@@ -97,13 +97,13 @@ Notes:
 - `(source_id, natural_key)` scoping stops two setups overwriting each other.
 - `content_hash` makes re-imports cheap and gives accurate `unchanged` counts.
 - Optional history: `raw_record_versions` (append-only) if audit of changes is needed (open question).
-- Migrations via `golang-migrate` in `migrations/` (embedded; `store.Migrate`; applied by `importer migrate up|down|version`, `down` rolls back one step). `0001_core` creates only `sources`, `mappings`, `import_runs`, `raw_records`, `import_errors`; groups, templates, `source_files`, and the `group_id`/`schedule`/`enabled`/`next_run_at`/`last_scheduled_at` columns come in later migrations. Until `source_files` exists, `import_runs.file_id` has no foreign key.
+- Migrations via `golang-migrate` in `migrations/` (embedded; `store.Migrate`; applied by `importer migrate up|down|version`, `down` rolls back one step). `0001_core` creates only `sources`, `mappings`, `import_runs`, `raw_records`, `import_errors`; `0002_source_files` adds `source_files` and the foreign key `import_runs.file_id -> source_files(id)`; groups, templates, and the `group_id`/`schedule`/`enabled`/`next_run_at`/`last_scheduled_at` columns come in later migrations.
 
 Decisions (task 002):
 - Runner: golang-migrate v4.18.3 with the pgx5 driver and an `iofs` source over SQL embedded by `migrations/embed.go`. The applied version is stored in `schema_migrations`.
 - `down` rolls back one step; at version 0 it is a no-op. `up` is idempotent.
 - `sources.kind` CHECK allows `csv`, `xlsx`, `http_json` (as in `0001_core.up.sql`).
-- The `sources_due` index and the `import_runs.file_id` foreign key are deliberately left to later migrations; `file_id` is a plain `bigint` for now.
+- The `sources_due` index and the `import_runs.file_id` foreign key are deliberately left to later migrations; `file_id` was a plain `bigint` until task 014, which added the foreign key in `0002_source_files`.
 
 Decisions (task 003):
 - **Natural key** (`record.Key(parts...)`): a JSON array of the key parts as strings, e.g. `["L55O","1989"]` (no HTML escaping). Injective: parts containing `|`, quotes or commas cannot collide. `natural_key` is opaque to the store.
@@ -112,7 +112,7 @@ Decisions (task 003):
 - **Advisory lock** (`store.TryAdvisoryLock`): session-level `pg_try_advisory_lock(hashtextextended('data-importer:source:'||id, 0))` on a dedicated connection outside the work pool (task 019, see [decisions](#decisions-task-019)); released by `unlock()` or by Postgres when the connection is lost. It returns `(unlock, ok, err)`: `err != nil` means the attempt failed (database down, closed pool) and says nothing about who holds the lock; `ok = false` with a nil error means it is held elsewhere; `unlock` is never nil and is safe to call more than once.
 
 Decisions (task 008):
-- **Run lifecycle** (`importer.Run`): a real run inserts `import_runs(status=running)` and always closes it with `succeeded`, `failed` or `aborted`, counts, `shape`, `source_meta` and `error`. `unchanged_file` is not written yet (task 014). A hard kill/OOM leaves `running` until the sweep below.
+- **Run lifecycle** (`importer.Run`): a real run inserts `import_runs(status=running)` and always closes it with `succeeded`, `failed` or `aborted`, counts, `shape`, `source_meta` and `error`. `unchanged_file` is written by change detection (task 014, see below). A hard kill/OOM leaves `running` until the sweep below.
 - **Counts:** `inserted`/`updated`/`unchanged` come from `UpsertRaw`; `failed` is the number of rows written to `import_errors` (adapter row errors, empty natural key, NUL byte in a string). Failed rows never reach `raw_records`.
 - **`shape`:** JSON object `field -> {type -> count}` over top-level fields of accepted records, types `string`, `number`, `boolean`, `null`, `object`, `array`; fields starting with `_` are excluded. Example: `{"value":{"string":642}}`.
 - **`source_meta`:** the adapter's preamble metadata as JSON; null when the source has none.
@@ -133,6 +133,19 @@ Decisions (task 018):
 - **Memory:** a real run keeps nothing between batches (memory is one batch). A dry run keeps a 128-bit hash of each distinct key (SHA-256, first 16 bytes) in memory, bounded by `importer.MaxDryRunKeys` = 10,000,000 distinct keys; beyond it the dry run fails with `dry run: more than <N> distinct natural keys; duplicate detection is bounded, use a real run...` and writes nothing. Measured: a 200k-key dry run used about +6.7 MB heap; a real 200k-key run about +247 KB heap (12.6 s).
 - **Dry run** writes nothing but reports `Duplicates` and the first 10 `DuplicateSamples` in `RunResult`. The `importer run` CLI prints only the summary (`failed=` includes duplicates); printing the samples is a backlog item in [roadmap](roadmap.md#hardening-backlog).
 - **Evidence (BoE column-shift copy, [sources/boe-baserate](sources/boe-baserate.md)):** a column inserted before the rate column left the `month` key part blank, so 854 valid records collapsed onto 773 natural keys. Before this rule: `status=aborted inserted=773 failed=8` (862 rows read), the 81 collisions were overwritten and counted once, silently. After it: `inserted=773 failed=89` (81 duplicate errors + 8 normalize errors), aborted at `max_error_ratio: 0`; 773 + 81 + 8 = 862, nothing lost silently. Dry run: `failed=89`.
+
+## Decisions (task 014)
+- **Schema:** migration `0002_source_files` creates `source_files` as in the table above (`UNIQUE (source_id, sha256)`, FK `run_id -> import_runs(id)`, `source_id -> sources(id)`) and the FK `import_runs.file_id -> source_files(id)`, with indexes on `import_runs(file_id)` and `(source_id, id)`. Down clears `file_id`, drops the FK and the table. `importer migrate up` prints `version 2`; one `migrate down` goes from 2 to 1.
+- **File store** (`store.FileStore` with `Put` and `Open`; implementation `store.DirFileStore`): files live in a local directory, chosen over large objects and object storage for now. Path `<dir>/<aa>/<sha256>` (`<aa>` = first two hex digits of the SHA-256). The only input to a path is the 64-hex SHA-256, so no name can leave the directory. Directories are 0700, files 0600. A write goes to a temp file, is fsynced and renamed (atomic). The same bytes stored twice are one file; each source keeps its own `source_files` row.
+- **Verification:** `Open` re-hashes the bytes. A corrupt file fails with `stored file is corrupt (SHA-256 mismatch)`, a missing one with `stored file is missing`; both exit 1 from the CLI.
+- **Size:** the fetch limit applies (256 MB; the xlsx workbook limit is 100 MB, task 013). CSV is streamed (fetch, store, verify, parse), never buffered.
+- **Location:** env `FILE_STORE_DIR`, default `data/files` relative to the working directory. It is created if missing; a path that is not a directory exits 2 before any database work. `data/` is git-ignored. Running from another directory starts an empty store (see [operations](operations.md#configuration-env)).
+- **Retention:** none. Files are kept forever; no cleanup exists (backlog: [roadmap](roadmap.md#hardening-backlog)).
+- **Conditional fetch** (`http`/`https` only; `file://` and local paths send no conditional headers): `If-None-Match` and `If-Modified-Since` are sent only when `change_detection` lists `etag` or `last_modified`, using the values of the last SUCCESSFUL run (`succeeded` or `unchanged_file`; an aborted or failed run is never the baseline). Last-Modified is stored as a timestamp and resent in canonical HTTP-date form; an unparsable date is stored NULL and only the ETag is sent. Weak ETags and long ETags work. Servers that ignore validators, send random ETags or redirect give normal runs.
+- **`unchanged_file`:** a `304` closes the run as `unchanged_file`: zero parse work, no `raw_records` or `import_errors` writes, counts 0, `file_id` set, `shape`, `source_meta` and `error` NULL. A `304` on a first run (no stored validators) fails the run (exit 1). A `200` whose SHA-256 equals the last successful run's file also closes the run as `unchanged_file`, but **only when `change_detection` lists `content_hash`**. Without it an identical file is parsed and gives `unchanged` counts. (The earlier design text said an identical SHA-256 always closes the run; the condition is the decision taken in task 014, see [design](design.md#import).)
+- **Reparse** (`importer reparse --source <id> [--run <id>]`): parses the stored file of the latest run that has one, or of run `<id>`, again with the current `sources.config`. No network. The run goes through `importer.Run` (source lock, duplicate-key rule, `max_error_ratio`), gets `trigger=manual` and `file_id` of that file. With an unchanged pipeline `unchanged` equals the record count (BoE 854). After a pipeline change only records whose canonical payload changed are `updated`; keys no longer produced are left alone (no tombstoning yet). Operator guide: [operations](operations.md#importer-reparse).
+- **Evidence** (validator, not re-run for this document): ONS `ons-l55o` 642 then `unchanged=642`; BoE 854 then `unchanged_file`; `reparse --run 1` after a pipeline change gave `updated=1 unchanged=1`; reparse with the source server killed succeeded.
+- **Not verified:** read-only or full disk (tests ran as root); kill during a write (code reading only); the 256 MB limit beyond the existing tests.
 
 ## Decisions (task 019)
 - **Lock connections** (`store.TryAdvisoryLock`): a source lock is held on a dedicated `pgx.Conn` outside the work pool, so a run never holds a work connection while it waits for other work connections. The connection is a copy of the work pool's connection config (`application_name`, `search_path`, `sslmode` inherited; pool connect hooks are not applied, none are set). It is closed on `unlock()`, so the session and its lock go away together. The number of concurrent locks per process is bounded by `Options.LockConns` (`DB_LOCK_MAX_CONNS`, default 8).

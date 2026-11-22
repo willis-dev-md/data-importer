@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"io"
 
 	"github.com/willis-dev-md/data-importer/internal/config"
 )
@@ -46,4 +47,20 @@ type Hasher interface {
 // Adapter opens a source as a Stream.
 type Adapter interface {
 	Open(ctx context.Context, cfg *config.Source) (Stream, error)
+}
+
+// FileAdapter is implemented by adapters whose input is one file that can be
+// fetched separately from parsing (csv, xlsx). The importer then fetches the file
+// itself (conditional request, hashing, retention in the file store) and hands the
+// stored bytes to OpenReader, so a stored file can be parsed again without the
+// network. Adapters that are not FileAdapters (for example an http_json API) are
+// opened with Open and keep no file.
+type FileAdapter interface {
+	Adapter
+	// FetchOptions returns the effective options (client, timeout, size limit) the
+	// adapter would use to fetch cfg.Location. MaxBytes is always resolved (> 0).
+	FetchOptions(cfg *config.Source) FetchOptions
+	// OpenReader parses r (the bytes of the file) as Open would parse the fetched
+	// file. It never touches the network. The caller closes r after Close.
+	OpenReader(ctx context.Context, cfg *config.Source, r io.Reader) (Stream, error)
 }

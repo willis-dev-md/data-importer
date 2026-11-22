@@ -91,7 +91,8 @@ type Run struct {
 	StartedAt  time.Time
 	FinishedAt *time.Time
 	RunCounts
-	Error *string
+	Error  *string
+	FileID *int64 // source_files.id parsed (or found unchanged) by this run; nil if none
 }
 
 // RowError is one bad input row, recorded in import_errors.
@@ -202,10 +203,10 @@ func (s *Store) GetRun(ctx context.Context, runID int64) (Run, error) {
 	var shape, meta []byte
 	err := s.pool.QueryRow(ctx, `
 SELECT id, source_id, status, trigger, source_meta, shape, started_at, finished_at,
-       inserted, updated, unchanged, failed, tombstoned, error
+       inserted, updated, unchanged, failed, tombstoned, error, file_id
 FROM import_runs WHERE id = $1`, runID).Scan(
 		&r.ID, &r.SourceID, &r.Status, &r.Trigger, &meta, &shape, &r.StartedAt, &r.FinishedAt,
-		&r.Inserted, &r.Updated, &r.Unchanged, &r.Failed, &r.Tombstoned, &r.Error)
+		&r.Inserted, &r.Updated, &r.Unchanged, &r.Failed, &r.Tombstoned, &r.Error, &r.FileID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Run{}, fmt.Errorf("run %d: %w", runID, ErrNotFound)
 	}

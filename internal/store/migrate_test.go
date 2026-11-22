@@ -9,7 +9,7 @@ import (
 	"github.com/willis-dev-md/data-importer/internal/testutil"
 )
 
-var coreTables = []string{"sources", "mappings", "import_runs", "raw_records", "import_errors"}
+var coreTables = []string{"sources", "mappings", "import_runs", "raw_records", "import_errors", "source_files"}
 
 func connect(t *testing.T, url string) *pgx.Conn {
 	t.Helper()
@@ -49,8 +49,8 @@ func TestMigrateUpDown(t *testing.T) {
 		t.Fatalf("initial version = %d, %v; want 0", v, err)
 	}
 	for i := 0; i < 2; i++ { // twice: idempotent
-		if v, err = store.Migrate(ctx, url, store.Up); err != nil || v != 1 {
-			t.Fatalf("up #%d = %d, %v; want 1", i, v, err)
+		if v, err = store.Migrate(ctx, url, store.Up); err != nil || v != 2 {
+			t.Fatalf("up #%d = %d, %v; want 2", i, v, err)
 		}
 	}
 	c := connect(t, url)
@@ -60,7 +60,7 @@ func TestMigrateUpDown(t *testing.T) {
 			t.Errorf("table %s missing after up", n)
 		}
 	}
-	for _, n := range []string{"source_files", "source_groups", "mapping_templates"} {
+	for _, n := range []string{"source_groups", "mapping_templates"} {
 		if got[n] {
 			t.Errorf("table %s must not exist yet", n)
 		}
@@ -127,9 +127,65 @@ func TestMigrateUpDown(t *testing.T) {
 		t.Error("duplicate (source_id, natural_key) accepted")
 	}
 
+	// source_files (0002): columns, unique key and the import_runs.file_id foreign key.
+	if q(`SELECT count(*) FROM information_schema.columns WHERE table_name='source_files'
+	      AND column_name IN ('id','source_id','run_id','sha256','size_bytes','etag','last_modified','storage_ref','fetched_at')`) != 9 {
+		t.Error("source_files columns differ from docs/data-model.md")
+	}
+	if q(`SELECT count(*) FROM pg_constraint WHERE conrelid='source_files'::regclass AND contype='u'
+	      AND pg_get_constraintdef(oid) = 'UNIQUE (source_id, sha256)'`) != 1 {
+		t.Error("source_files UNIQUE (source_id, sha256) missing")
+	}
+	if q(`SELECT count(*) FROM pg_constraint WHERE conrelid='import_runs'::regclass AND contype='f'
+	      AND pg_get_constraintdef(oid) LIKE '%(file_id)%source_files%'`) != 1 {
+		t.Error("import_runs.file_id foreign key missing")
+	}
+	var runForFile int64
+	if err := c.QueryRow(ctx, `SELECT min(id) FROM import_runs`).Scan(&runForFile); err != nil {
+		t.Fatal(err)
+	}
+	insFile := `INSERT INTO source_files (source_id, run_id, sha256, size_bytes, storage_ref) VALUES ($1,$2,'\x01',1,'r')`
+	if _, err := c.Exec(ctx, insFile, "s", runForFile); err != nil {
+		t.Fatalf("valid source_files insert: %v", err)
+	}
+	if _, err := c.Exec(ctx, insFile, "s", runForFile); err == nil {
+		t.Error("duplicate (source_id, sha256) accepted")
+	}
+	if _, err := c.Exec(ctx, insFile, "unknown", runForFile); err == nil {
+		t.Error("source_files row for unknown source accepted")
+	}
+	if _, err := c.Exec(ctx, `UPDATE import_runs SET file_id = 999999 WHERE id = $1`, runForFile); err == nil {
+		t.Error("import_runs.file_id pointing nowhere accepted")
+	}
+	if _, err := c.Exec(ctx, `UPDATE import_runs SET file_id = (SELECT id FROM source_files LIMIT 1) WHERE id = $1`, runForFile); err != nil {
+		t.Errorf("import_runs.file_id to a real file rejected: %v", err)
+	}
+
+	// Down one step removes source_files only (and the file_id foreign key), keeping the core tables and data.
+	if v, err = store.Migrate(ctx, url, store.Down); err != nil || v != 1 {
+		t.Fatalf("down (one step) = %d, %v; want 1", v, err)
+	}
+	got = tableSet(t, connect(t, url))
+	if got["source_files"] || !got["import_runs"] || !got["raw_records"] {
+		t.Errorf("after one down: tables %v", got)
+	}
+	if q(`SELECT count(*) FROM information_schema.columns WHERE table_name='import_runs' AND column_name='file_id'`) != 1 {
+		t.Error("import_runs.file_id column must survive the 0002 down")
+	}
+	if v, err = store.Migrate(ctx, url, store.Up); err != nil || v != 2 {
+		t.Fatalf("up after down = %d, %v; want 2", v, err)
+	}
+	// The down cleared file_id (it pointed into the dropped table), so the up above could add the foreign key.
+	if q(`SELECT count(*) FROM import_runs WHERE file_id IS NOT NULL`) != 0 {
+		t.Error("file_id not cleared by the 0002 down")
+	}
+
 	// Down removes everything (only the migrator's own table may remain).
-	if v, err = store.Migrate(ctx, url, store.Down); err != nil || v != 0 {
-		t.Fatalf("down = %d, %v; want 0", v, err)
+	for i := 0; i < 2; i++ { // two migrations
+		v, err = store.Migrate(ctx, url, store.Down)
+		if err != nil || int(v) != 1-i {
+			t.Fatalf("down #%d = %d, %v; want %d", i, v, err, 1-i)
+		}
 	}
 	c2 := connect(t, url)
 	for n := range tableSet(t, c2) {
@@ -142,7 +198,7 @@ func TestMigrateUpDown(t *testing.T) {
 	}
 
 	// up/down/up leaves a working schema.
-	if v, err = store.Migrate(ctx, url, store.Up); err != nil || v != 1 {
+	if v, err = store.Migrate(ctx, url, store.Up); err != nil || v != 2 {
 		t.Fatalf("re-up = %d, %v", v, err)
 	}
 	c3 := connect(t, url)

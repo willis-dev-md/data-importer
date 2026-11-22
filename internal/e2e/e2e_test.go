@@ -61,10 +61,27 @@ func env(dbURL string, extra ...string) []string {
 	return append(e, extra...)
 }
 
+var (
+	filesMu   sync.Mutex
+	filesDirs = map[*testing.T]string{}
+)
+
+// filesDir is the importer's file store of one test (kept across its invocations, outside the repo).
+func filesDir(t *testing.T) string {
+	filesMu.Lock()
+	defer filesMu.Unlock()
+	if d, ok := filesDirs[t]; ok {
+		return d
+	}
+	d := t.TempDir()
+	filesDirs[t] = d
+	return d
+}
+
 func runImporter(t *testing.T, bin, dbURL string, wantOut string, args ...string) {
 	t.Helper()
 	cmd := exec.Command(bin, args...)
-	cmd.Env = env(dbURL)
+	cmd.Env = env(dbURL, "FILE_STORE_DIR="+filesDir(t))
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {
@@ -143,7 +160,7 @@ func TestONSSliceEndToEnd(t *testing.T) {
 		}
 	}
 
-	runImporter(t, bin, dbURL, "version 1", "migrate", "up")
+	runImporter(t, bin, dbURL, "version 2", "migrate", "up")
 	runImporter(t, bin, dbURL, "ons-l55o: source created", "sources", "apply", "--dir", dir, "--schema", schema)
 	runImporter(t, bin, dbURL, "inserted=642", "run", "--source", "ons-l55o")
 
