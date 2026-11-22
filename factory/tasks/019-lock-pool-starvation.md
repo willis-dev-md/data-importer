@@ -29,6 +29,6 @@ docs/design.md (failure handling / concurrency); docs/operations.md (pool size e
 docs/runbooks/import-failures.md (a run that waits or fails for lack of a lock connection: symptom, diagnosis, fix)
 
 ## Status
-pending
+in-progress
 ## Log
 (created by the orchestrator from the task 018 worker's report)

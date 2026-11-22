@@ -14,7 +14,7 @@ created by the task that introduces the behaviour.
 | [local-development.md](local-development.md) | build, test, start/stop the test database; Postgres-as-root, TMPDIR, go.mod bump, CI_REQUIRE_DB |
 | [database-migrations.md](database-migrations.md) | `importer migrate` up/down/version, safe apply, `Dirty database version` recovery, psql schema inspection |
 | [add-a-source.md](add-a-source.md) | register a CSV source and mapping (`sources apply`), dry-run, first real run, verify; `importer run` exit codes and CLI error messages |
-| [import-failures.md](import-failures.md) | an import run `failed`, `aborted` (max_error_ratio), `already running`, was cancelled, or is stuck `running` (abandoned-run sweep); reading `import_runs` / `import_errors`; `importer run` exit codes |
+| [import-failures.md](import-failures.md) | an import run `failed`, `aborted` (max_error_ratio), `already running`, was cancelled, or is stuck `running` (abandoned-run sweep); `duplicate natural key` rejects (first record wins); dry-run duplicate check and its key limit; reading `import_runs` / `import_errors`; `importer run` exit codes |
 | [source-layout-changed.md](source-layout-changed.md) | a publisher changed an xlsx/csv layout: sheet renamed (`sheet ... not found; available sheets`), column letters shifted (`aborted`, `normalize: column ... is not a number`), title row or preamble changed (silent or extra row); compare, fix the config, verify |
 | [mapping-validation-errors.md](mapping-validation-errors.md) | `importer mapping validate` prints issues or exits 1/2; every validation code with fix; runtime field errors (MISSING_REQUIRED, TYPE_MISMATCH, PARSE_FAILED, VALIDATION_FAILED) |
 | [run-the-grpc-server.md](run-the-grpc-server.md) | start/stop `importer serve` (plaintext, TLS), health `SERVING`/`NOT_SERVING`, reflection, graceful shutdown; startup errors; `ListRecords`/`GetRecord` checks, short pages and `next_page_token`, `SCAN_LIMIT`; data-call errors by code; `mapping_errors` in responses; `Internal` in the server log |
@@ -24,7 +24,7 @@ created by the task that introduces the behaviour.
 
 Facts from task logs, not yet verified as operator procedures. The owning task confirms them by running them.
 
-- Task 003 (owned by 009; the Inserted/Updated/Unchanged counts were confirmed by the CLI run in add-a-source.md; still unverified: `last_run_id` set on unchanged rows, duplicate keys in one batch count once, last wins).
+- Task 003 (owned by 009; the Inserted/Updated/Unchanged counts were confirmed by the CLI run in add-a-source.md; still unverified: `last_run_id` set on unchanged rows). The duplicate-key rule ("last wins") is superseded by task 018: the first record wins, later ones are rejected as `duplicate natural key` (see import-failures.md).
 - Task 003, owned by 008: numbers are canonicalised as exact plain decimals. Expansions above 20000 digits are rejected.
   Postgres jsonb can reject huge values with "value overflows numeric format" (not reproduced; the NUL-byte half of this seed is
   covered in import-failures.md).

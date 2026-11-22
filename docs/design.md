@@ -85,7 +85,7 @@ recomputes `next_run_at` immediately. A source can be paused with `enabled: fals
 3. Adapter yields records; for each compute `natural_key` (JSON array of key parts) and `content_hash`
    (SHA-256 of canonical JSON); see [data-model](data-model.md#decisions-task-003).
 4. Upsert `raw_records` on `(source_id, natural_key)` (`store.UpsertRaw`); when `content_hash` is unchanged the
-   payload is not rewritten, only `last_run_id` is set (counts as `unchanged`). Duplicate keys in a batch: last wins.
+   payload is not rewritten, only `last_run_id` is set (counts as `unchanged`). Duplicate keys in one run: the first record wins; a later record with the same key is a row error, not a merge ([data-model](data-model.md#decisions-task-018)).
    A per-source advisory lock (`store.TryAdvisoryLock`) keeps two runs of one source from overlapping.
 5. Track field names/types seen (shape summary) on the run.
 6. Optional `missing_policy: tombstone`: after a **complete** run, mark rows not seen as `deleted_at = now()`.
@@ -107,6 +107,10 @@ whole run unless `max_error_ratio` is exceeded.
 - **Row errors:** adapter `RowError`s, records with an empty natural key, and records whose strings (values or keys)
   contain a NUL byte (`\u0000`, not storable as jsonb) are written to `import_errors` and counted in `failed`; the
   rest of the batch is still written.
+- **Duplicate natural keys:** a record whose key was already written earlier in the same run (same or earlier batch) is
+  rejected with reason `duplicate natural key (first seen at <position>)`, recorded and counted in `failed` like any row
+  error, so it also counts toward `max_error_ratio`. A dry run detects them too (`RunResult.Duplicates`). Task 018 made
+  this the rule: before it, a later record silently overwrote the earlier one and was counted once.
 - **`max_error_ratio`:** after the stream ends, `failed/total > ratio` ends the run `aborted`. Equal is fine; ratio 0 means
   any error aborts; `total` 0 never aborts. Batches already committed stay in `raw_records`, tagged with the run id.
 - **Shape and metadata:** `shape` is per top-level field the observed value types with counts, e.g.
@@ -192,6 +196,9 @@ Read-time mapping and JSONB filtering are fine for moderate volume. Escape hatch
 - API sources: retry with exponential backoff and jitter, honour `Retry-After`, per-source rate limit.
 - `max_error_ratio` aborts before committing a mostly-bad file (chunks already committed are tagged with
   the run id and can be rolled back with `importer rollback --run <id>`).
+- A bad file with many collisions (for example a layout change that blanks a key column) therefore shows up as many
+  `duplicate natural key` row errors and an `aborted` run, not as a silently smaller import. Reading the errors is in
+  [import failures](runbooks/import-failures.md).
 
 ## 10. Security
 

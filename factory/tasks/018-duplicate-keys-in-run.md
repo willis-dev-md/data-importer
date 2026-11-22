@@ -31,7 +31,7 @@ docs/data-model.md (decisions for tasks 003/008: duplicate-key rule); docs/desig
 docs/runbooks/source-layout-changed.md (case 2 now reports duplicate-key errors: update the real output) and docs/runbooks/import-failures.md (new error reason and how to read it)
 
 ## Status
-in-progress
+validated
 ## Log
 (created by the orchestrator after the task 013 runbook-refiner's layout-change reproduction)
 
@@ -58,3 +58,5 @@ in-progress
 ### Pool exhaustion reproduction (for task 019; NOT fixed)
 Each `importer.Run` holds one pool connection for the source advisory lock (`TryAdvisoryLock`, kept until the run ends) and needs further connections for `GetSource`/`CreateRun`/`UpsertRawUnique`/`RecordErrors`/`FinishRun`. With a pool whose `MaxConns` is small (default `max(4, NumCPU)` from `pgxpool.New`), N concurrent runs of N DIFFERENT sources with N >= MaxConns each hold one connection for their lock and all wait forever for a second one: the test hung for 9 min 57 s until `go test`'s 10 min timeout. Reproduction: in `internal/importer`, make `newEnv` use `pgxpool.New(ctx, url)` (default size; I raised it to `MaxConns = 32` in `importer_test.go`), register 4 sources `c1..c4`, start 4 goroutines calling `importer.Run(ctx, deps, id, importer.Options{BatchSize: 100})` with a 3000-record stream (`keyedStream` in `dup_test.go`), then `wg.Wait()`: `TestDuplicatesDifferentSourcesConcurrently` hangs. Fix directions for 019: take the lock connection out of the pool budget (dedicated `pgx.Conn` for the lock), or bound concurrent runs below `MaxConns`, or acquire with a timeout and fail with a clear error.
 - 2026-11-21 SESSION STOPPED: worker rounds 1 and 2 done and `scripts/validate.sh` passed for the worker; the round-2 validator was interrupted by the end of the session and its result is unknown. Status stays `in-progress`; code committed as WIP. Resume with the validator, then documentor, runbook-refiner and the deterministic docs check. Pool-exhaustion deadlock is task 019.
+- 2026-11-22 validator r2 (resumed session): PASS. Independent reproduction of the cause (81 distinct records collapsed onto equal keys; old `inserted=773 failed=8`, new `inserted=773 failed=89`: 773 + 81 + 8 = 862); 2,349 near-duplicate keys with 0 false duplicates; first record wins; re-runs unaffected; dry run detects duplicates and writes nothing; mutation checks (detection off, dry-run detection off, last-wins) each fail tests. Side finding: `TestFetchHTTPS/timeout` (internal/source) flaked once under load: backlog.
+- documentor and runbook-refiner (sequential, budgets 20/25, evidence packs) ran; deterministic docs check PASS. The earlier "Session stopped" entry above is superseded.
