@@ -1,0 +1,31 @@
+# ASHE Table 20.7a (annual gross pay by age band and 2-digit SOC), provisional edition, as a standalone source.
+# One source per edition (source groups are not implemented, see docs/source-groups.md). Add a source for each new edition.
+id: ashe-t20-2026p
+kind: xlsx
+location: "https://www.ons.gov.uk/file?uri=/employmentandlabourmarket/peopleinwork/earningsandworkinghours/datasets/agegroupbyoccupation2digitsocashetable20/2026provisional/ashetable202026provisional.zip"
+archive: { type: zip, member: '(?i)Table 20\.7a .*\.xlsx$' }   # exactly one member must match; real member 2026p: "PROV - Age by Occupation SOC20 (2) Table 20.7a   Annual pay - Gross 2026.xlsx", 2025r: "Age by Occupation SOC20 (2) Table 20.7a   Annual pay - Gross 2025.xlsx" (no prefix); repeated spaces tolerated
+context: { year: 2026, status: provisional }
+xlsx:
+  sheets: { except: [Notes] }         # All, Male, Female, Full-Time, Part-Time, Male Full-Time, ...: @ctx.sheet
+  header: false
+  start_row: 6
+  columns: { A: description, B: soc_code, C: jobs, D: median, F: mean, H: p10, I: p20, J: p25, K: p30, L: p40, M: p60, N: p70, O: p75, P: p80, Q: p90 }
+  use_cached_values: true
+table:
+  - skip_rows: { where: description, match: '^\s*(a  |b  |KEY|The quality|Source|Not Classified|Key|Statistical|CV|Estimates|x =|\.\. =|: =|- =)' }
+  - skip_rows: { where: description, match: '^\s*(18-21|22-29|30-39|40-49|50-59|60\+)\s*$' }   # duplicates of "<age> ALL OCCUPATIONS"
+  - split:
+      column: description
+      regex: '^\s*(?P<age_band>18-21|22-29|30-39|40-49|50-59|60\+)\s+(?P<soc_name>.*?)\s*$'
+      optional: true                  # "All employees" has no age band
+  - strip: { soc_code: ["'"] }
+  - normalize: { soc_name: [collapse_ws, trim], soc_code: [trim], jobs: to_number, median: to_number, mean: to_number, p10: to_number, p20: to_number, p25: to_number, p30: to_number, p40: to_number, p60: to_number, p70: to_number, p75: to_number, p80: to_number, p90: to_number }
+  - unpivot:
+      id: [description, age_band, soc_code, soc_name]
+      columns: [jobs, median, mean]     # add p10..p90 when wanted
+      name: statistic
+      value: value
+      # empty cells are dropped; 'x' markers are non-empty text, so they are kept and the mapping turns them into null + quality_flag
+natural_key: ["@ctx.sheet", "@ctx.year", "@ctx.status", age_band, soc_code, statistic]   # "All employees" has empty age_band/soc_code
+schedule: { every: weekly, day_of_week: monday, at: "07:00", timezone: Europe/London }   # releases are annual (October); unchanged files are skipped
+change_detection: [etag, last_modified, content_hash]

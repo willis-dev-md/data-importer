@@ -22,6 +22,7 @@ created by the task that introduces the behaviour.
 | [run-the-grpc-server.md](run-the-grpc-server.md) | start/stop `importer serve` (plaintext, TLS), health `SERVING`/`NOT_SERVING`, reflection, graceful shutdown; startup errors; `ListRecords`/`GetRecord` checks, short pages and `next_page_token`, `SCAN_LIMIT`; data-call errors by code; `mapping_errors` in responses; `Internal` in the server log |
 | [demo-and-smoke-test.md](demo-and-smoke-test.md) | run `scripts/demo.sh` (ONS CSV to Postgres to gRPC), expected output, leftover processes after an interrupted run; the e2e test `go test ./internal/e2e`; release smoke-test checklist |
 | [uk-hpi-monthly-update.md](uk-hpi-monthly-update.md) | monthly run of `uk-hpi-average-prices` and `uk-hpi-property-type` (files appear about two months late); expected summary and counts; `unchanged_file`; a month that is missing; sizing; scheduler not implemented yet |
+| [ashe-annual-release.md](ashe-annual-release.md) | yearly ONS ASHE Table 20 release (October): add a provisional or revised edition as a standalone source; member regex in the zip (`archive member selection failed`); marker forms; choosing revised over provisional; checking the load (5812 / 5816 records) |
 
 ## Seeds for later runbooks
 
@@ -31,6 +32,3 @@ Facts from task logs, not yet verified as operator procedures. The owning task c
 - Task 003, owned by 008: numbers are canonicalised as exact plain decimals. Expansions above 20000 digits are rejected.
   Postgres jsonb can reject huge values with "value overflows numeric format" (not reproduced; the NUL-byte half of this seed is
   covered in import-failures.md).
-
-Planned (created by the tasks in `factory/tasks/`):
-ashe-annual-release.

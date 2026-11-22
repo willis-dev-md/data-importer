@@ -1,5 +1,11 @@
 # Source groups (many datasets, one definition)
 
+> **NOT IMPLEMENTED YET (planned, M7b).** Nothing in this document is in the code. Task 017 (ASHE Table 20) found this
+> out while planning and imports its two editions as standalone sources instead:
+> [ashe-t20-2026p](examples/ashe-t20-2026p.source.yaml) and [ashe-t20-2025r](examples/ashe-t20-2025r.source.yaml).
+> The group file [ashe-t20-annual-pay.group.yaml](examples/ashe-t20-annual-pay.group.yaml) is a future design only.
+> Until M7b, use one standalone source per dataset or edition.
+
 Many setups import dozens or hundreds of datasets that share one structure and differ only by a parameter
 (for ONS: the series ID `CDID` and dataset ID in the URL). Copying a source file per dataset does not scale, so a
 **source group** defines the shared parts once and lists the members.

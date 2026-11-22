@@ -1,0 +1,20 @@
+source: ashe-t20-2025r
+version: 1
+fields:
+  series_id:    { template: "ashe20.7a:{@ctx.sheet}:{age_band}:{soc_code}:{statistic}", empty_ok: true }
+  series_title: { template: "ASHE annual gross pay ({statistic}), {soc_name}, {age_band}, {@ctx.sheet}", empty_ok: true }
+  measure:      { const: annual_pay_gross }
+  statistic:    { from: statistic, required: true }
+  # annual estimates cover the tax year ended 5 April of the reference year
+  period_type:  { from: "@ctx.year", type: period, format: tax_year_ending, output: period_type }
+  period_start: { from: "@ctx.year", type: period, format: tax_year_ending, output: period_start }
+  period_end:   { from: "@ctx.year", type: period, format: tax_year_ending, output: period_end }
+  value:        { from: value, type: decimal, null_markers: ["x", "..", ":", "-"], flag: quality_flag }
+  unit:         { from: statistic, map: { jobs: thousand_jobs, median: GBP, mean: GBP } }
+  status:       { from: "@ctx.status" }
+dimensions:
+  population: { from: "@ctx.sheet" }
+  age_band:   { from: age_band, default: all }
+  soc_code:   { from: soc_code, default: total }
+  soc_name:   { from: soc_name, default: "All occupations" }
+extra: keep

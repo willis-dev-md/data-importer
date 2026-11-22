@@ -1,3 +1,5 @@
+# FUTURE DESIGN: source groups (group + template + members) are not implemented yet (docs/source-groups.md). The working
+# standalone files are ashe-t20-2026p.* and ashe-t20-2025r.* in this directory.
 # ASHE Table 20.7a: annual gross pay by age group and 2-digit SOC occupation, one workbook per release.
 group: ashe-t20-annual-gross
 template:

@@ -80,8 +80,14 @@ func filesDir(t *testing.T) string {
 
 func runImporter(t *testing.T, bin, dbURL string, wantOut string, args ...string) {
 	t.Helper()
+	runImporterEnv(t, bin, dbURL, nil, wantOut, args...)
+}
+
+// runImporterEnv is runImporter with extra child environment variables.
+func runImporterEnv(t *testing.T, bin, dbURL string, extra []string, wantOut string, args ...string) {
+	t.Helper()
 	cmd := exec.Command(bin, args...)
-	cmd.Env = env(dbURL, "FILE_STORE_DIR="+filesDir(t))
+	cmd.Env = env(dbURL, append([]string{"FILE_STORE_DIR=" + filesDir(t)}, extra...)...)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {
