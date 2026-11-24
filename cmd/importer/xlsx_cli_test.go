@@ -32,7 +32,7 @@ func TestCLIXLSXSource(t *testing.T) {
 	writeFile(t, dir, "boe-bank-rate.source.yaml", src)
 	writeFile(t, dir, "boe-bank-rate.mapping.yaml", readFile(t, filepath.Join(repo, "docs", "examples", "boe-baserate.mapping.yaml")))
 
-	c.expect(nil, 0, "version 2", "migrate", "up")
+	c.expect(nil, 0, "version 3", "migrate", "up")
 	c.expect(nil, 0, "boe-bank-rate: source created, mapping v1 created", "sources", "apply", "--dir", dir, "--schema", schema)
 	c.expect(nil, 0, "source=boe-bank-rate status=succeeded inserted=854 updated=0 unchanged=0 failed=0 run=1", "run", "--source", "boe-bank-rate")
 	// The BoE example lists content_hash: the same file closes the run as unchanged_file (task 014).

@@ -14,19 +14,41 @@ Every source (any kind) defines when it is imported:
 
 ```yaml
 schedule:
-  every: daily            # daily | weekly | monthly   (or `cron: "0 6 * * 1"`)
-  at: "06:00"             # local time in `timezone`
-  day_of_week: monday     # weekly only
-  day_of_month: 18        # monthly only; 1-28, or `last`
-  timezone: Europe/London
-  on_missed: run_once     # run_once | skip
-  jitter: 5m              # optional random delay to spread load
-enabled: true
+  every: daily            # daily | weekly | monthly (required)
+  at: "06:00"             # HH:MM, 24h, local time in `timezone` (default 00:00)
+  day_of_week: monday     # weekly only: required for weekly, rejected otherwise
+  day_of_month: 18        # monthly only: required for monthly; 1-28, or `last`
+  timezone: Europe/London # IANA name (default Europe/London)
+  on_missed: run_once     # run_once (default) | skip
+  jitter: 5m              # deterministic offset in [0, 1h]; default 0s
+enabled: true             # false pauses the source and clears next_run_at
 ```
 
-Rules: exactly one of `every` or `cron`; `day_of_month` above 28 is rejected (use `last`); DST transitions
-follow the timezone database (a non-existent local time runs at the next valid instant). Schedule changes take
-effect on save. A source with no `schedule` is manual-only.
+Rules (implemented in task 021; the scheduler loop that starts due runs is task 022, not built yet):
+- `every` is required and must be `daily`, `weekly` or `monthly`. `cron:` is rejected: `schedule.cron: not supported yet (use every: daily, weekly or monthly)`. Cron expressions are out of scope.
+- Every error names its field as `schedule.<field>: ...`; `sources apply` reports them and writes nothing.
+- `day_of_month` is 1-28 or `last`, required for monthly and rejected otherwise. `day_of_week` is required for weekly and rejected otherwise.
+- `jitter` must be between 0 and 1h.
+- DST: a local time skipped by the spring-forward change runs once, at the transition instant. A local time in the repeated autumn hour runs once, at its first occurrence.
+- Cadence is counted from the scheduled slot, not from the finish time of the previous run.
+- `on_missed: run_once` runs one catch-up for the latest missed slot after downtime. `skip` runs no catch-up, except for a slot at most 5 minutes old (still on time).
+- A failed run is not retried: the next scheduled slot is the retry.
+- `sources apply` computes `next_run_at` from the save time; an identical re-apply keeps it, and a changed schedule recomputes it. A source with no `schedule` is manual-only (`next_run_at` is null).
+
+#### Validation example (task 021)
+
+Source file with `every: hourly`, `day_of_month: 30`, `cron:` and `jitter: 2h`, applied with an unreachable `DATABASE_URL` so that nothing can be written. Real output, exit 1:
+
+```text
+importer sources apply: <dir>/demo-bad.source.yaml: schedule.cron: not supported yet (use every: daily, weekly or monthly)
+schedule.day_of_month: only valid when every is monthly
+schedule.jitter: must be between 0 and 1h0m0s, got 2h0m0s
+nothing was written
+```
+
+Known gap: when `cron` is present, the `every` check is skipped, so an invalid `every` is not listed in that case. With `every: hourly` alone the output is `schedule.every: must be daily, weekly or monthly, got "hourly"`. See [ADR-0007](adr/0007-schedule-engine.md).
+
+A source with no `schedule` is manual-only.
 
 ## Source: CSV
 

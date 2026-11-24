@@ -1,7 +1,7 @@
 # Runbook: Reparse a stored file, find stored files, clean up
 
 **Owner role:** on-call engineer (importer operator)  |  **Severity if this happens:** medium (a reparse writes records; a missing stored file blocks reparse of that run only)
-**Last verified:** 2026-11-22, base 484b08e + task 014 changes (CLI on a throwaway Postgres 16 from `scripts/testdb.sh`, BoE fixture: first import, `unchanged_file`, reparse, pipeline change, missing store, default store from another directory, usage errors; the corrupt-file step was NOT reproduced, see Troubleshooting; the non-database verify block re-runs the usage checks)
+**Last verified:** 2026-11-24, task 021 (`migrate up` then `migrate version` on a throwaway Postgres 16: `version 3`; the CLI steps below are from 2026-11-22, base 484b08e + task 014 changes: CLI on a throwaway Postgres 16 from `scripts/testdb.sh`, BoE fixture: first import, `unchanged_file`, reparse, pipeline change, missing store, default store from another directory, usage errors; the corrupt-file step was NOT reproduced, see Troubleshooting; the non-database verify block re-runs the usage checks)
 
 ## When to use
 - You changed a source's pipeline (`table:` steps such as `columns`, `section`, `fill_down`, `normalize`) and the stored records must follow, without downloading the file again. Mapping changes do not need this: use `sources apply` ([ADR 0004](../adr/0004-structural-parsing-at-import.md)).
@@ -9,7 +9,7 @@
 - You need to know where fetched files are kept, or disk use grows (see Clean-up).
 
 ## Prerequisites
-- `bin/importer` (`make build`), `psql`, and `DATABASE_URL` in the environment (never paste it). The database must be at version 2: `bin/importer migrate version` prints `version 2` ([database-migrations.md](database-migrations.md)).
+- `bin/importer` (`make build`), `psql`, and `DATABASE_URL` in the environment (never paste it). The database must be at version 3: `bin/importer migrate version` prints `version 3` ([database-migrations.md](database-migrations.md)).
 - `FILE_STORE_DIR` set to an **absolute** path, the same one every `run` used. The default `data/files` is relative to the current directory (see below).
 - The source has a run that stored a file: a real `run` (not `--dry-run`) after migration 0002. Older runs have no file.
 

@@ -103,9 +103,9 @@ is kept in the `schema_migrations` table. Each form prints the resulting version
 Output and exit codes, run against an empty Postgres 16:
 
     $ importer migrate version     -> version 0   (exit 0)
-    $ importer migrate up          -> version 2   (exit 0)
-    $ importer migrate up          -> version 2   (exit 0, nothing to do)
-    $ importer migrate down        -> version 1   (exit 0)
+    $ importer migrate up          -> version 3   (exit 0)        # UNVERIFIED for 0003: the e2e test asserts this
+    $ importer migrate up          -> version 3   (exit 0, nothing to do)   # UNVERIFIED for 0003
+    $ importer migrate down        -> version 2   (exit 0)        # UNVERIFIED for 0003: not run
     $ importer migrate up         # DATABASE_URL unset
     importer migrate: DATABASE_URL is not set                                  (exit 1)
     $ importer migrate up         # nothing listening
@@ -371,10 +371,7 @@ Invalid mapping (real output for a test file with several mistakes; abridged: se
     fields.period_end: REQUIRED_NOT_COVERED: required canonical field "period_end" is not mapped
                                                                            (exit 1)
 
-Scheduling: built in. `importer serve` runs the scheduler for every source with a `schedule`, so deploy at least
-one replica (several are safe). Concurrent runs for one source are prevented with row locks plus a Postgres
-advisory lock. `importer schedule list` shows each source's next run; `importer run --source <id>` forces one.
-Outside `serve`, an external cron can still call `importer run`.
+Scheduling: partly built. `importer sources apply` validates each `schedule`, stores it and sets `next_run_at` (task 021); a source with no schedule, or with `enabled: false`, has none. The loop that starts due runs is **not built yet** (task 022): `importer serve` does not run the scheduler, and `importer schedule list` does not exist yet. Until task 022, run a source with `importer run --source <id>`, or let an external cron call `importer run`. The planned design (task 022) is that several replicas are safe, with row locks plus a Postgres advisory lock per source. The CLI line for a scheduled source ends with `next run <time>` (UNVERIFIED: the text is from the task 021 log, not run here).
 
 ## Observability
 - Structured JSON logs with `run_id` and `source_id`.

@@ -13,7 +13,7 @@ Status as of task 012. Milestones M0 to M5 are done; the task numbers are in the
 | M4 | Mapping engine | Parser, validator, transforms, `period` type, `@meta` refs, error model, dry-run | done: tasks 006 (canonical v2, parser, validator), 007 (evaluator) |
 | M5 | gRPC read API | `DataService` with filters, keyset paging, mapping on read | done: tasks 010 (skeleton), 011 (DataService) |
 | M6 | HTTP JSON adapter | Auth, pagination types, retries, rate limit | remaining (no task yet) |
-| M7 | Scheduler + services | Schedule parsing/validation, `next_run_at`, SKIP LOCKED claiming, catch-up policy; `SourceService`, `ImportService`, mapping versioning | remaining (no task yet) |
+| M7 | Scheduler + services | Schedule parsing/validation, `next_run_at`, SKIP LOCKED claiming, catch-up policy; `SourceService`, `ImportService`, mapping versioning | in progress: schedule parsing, validation, `next_run_at` and migration 0003 (task 021); polling loop, claiming and `schedule list` (task 022) |
 | M7b | Source groups | Templates, member expansion, shared mappings, plan/apply, rate limit, jitter, concurrency pool, group health | remaining (no task yet) |
 | M8 | Hardening | Auth interceptor, TLS, metrics, rollback, tombstones | remaining (no task yet) |
 | M9 | Performance | Indexes, optional materialized views, load test | remaining (no task yet) |

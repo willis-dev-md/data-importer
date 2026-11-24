@@ -186,7 +186,7 @@ func TestASHETable20EndToEnd(t *testing.T) {
 	total := wantAll + wantMFT
 	t.Logf("expected records per edition: All %d, Male Full-Time %d (markers %d)", wantAll, wantMFT, mft[2])
 
-	runImporter(t, bin, dbURL, "version 2", "migrate", "up")
+	runImporter(t, bin, dbURL, "version 3", "migrate", "up")
 	runImporterEnv(t, bin, dbURL, tlsEnv, "ashe-t20-2025r: source created", "sources", "apply", "--dir", dir, "--schema", schema)
 	runImporterEnv(t, bin, dbURL, tlsEnv, "inserted="+strconv.Itoa(total)+" updated=0 unchanged=0 failed=0", "run", "--source", "ashe-t20-2026p")
 

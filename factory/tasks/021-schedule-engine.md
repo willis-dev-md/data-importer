@@ -38,6 +38,37 @@ docs/mapping-spec.md#schedule (final rules, defaults, `cron` not supported); doc
 docs/runbooks/onboarding-a-new-source.md (how to set a schedule, timezone default, what `sources apply` reports)
 
 ## Status
-pending
+validated
 ## Log
 (created by the orchestrator)
+
+### Worker, round 1
+Files: `internal/schedule/{doc,schedule,schedule_test}.go` (new, pure); `internal/config/source.go` (+ `schedule_test.go`); `internal/store/mappings.go` (+ `schedule_test.go`, `migrate_test.go`); `migrations/0003_schedule.{up,down}.sql`; `cmd/importer/sources.go` (+ `schedule_cli_test.go`, `main_test.go` and other `version 2` -> `version 3` expectations incl. `internal/e2e`).
+
+What it does:
+- `schedule.New(Input) (Spec, error)` validates (all errors, each `schedule.<field>: ...`) and fills defaults (`at` 00:00, `timezone` Europe/London, `on_missed` run_once, `jitter` 0s). `Spec` is plain comparable data and is what is stored in `sources.schedule` (normalised, so equal schedules compare equal). `cron` is rejected: `schedule.cron: not supported yet (use every: daily, weekly or monthly)`.
+- `config.DayOfMonth` (int type, `-1` = `last`) reads/writes both `18` and `last`, so existing example files load and `ConfigJSON` round-trips. `config.Schedule` gained `cron`; `Schedule.Spec()` is called from `Source.Validate`, so every source load validates the schedule. `Source.IsEnabled()` added.
+- `schedule.Next(spec, after)` returns UTC, strictly after. Gap (spring-forward): the transition instant (first valid instant that day, once). Repeated hour (fall-back): the first occurrence only. Found with offset probing + binary search on the zone database, no reliance on `time.Date` behaviour in gaps.
+- `schedule.Plan(spec, lastScheduled, now) (Result{Due, Missed, Next})`: slots in (lastScheduled, now] are due; run_once -> one catch-up (latest), `Missed` counts the rest; skip -> none unless the latest slot is at most `SkipGrace` (5m) old, i.e. on time. Zero `lastScheduled` = no history: nothing due, Next from now. Next never depends on finish time (tested).
+- `schedule.Offset(id, jitter)` = FNV-1a 64 of the id mod jitter; 0 for jitter <= 0; pinned in a test.
+- Migration 0003 up/down; `Store.Apply`: `ApplyItem.Schedule *schedule.Spec`, `Disabled`, `Now` (clock; zero = time.Now()); `ApplyResult.ScheduleChanged/NextRunAt`. next_run_at is kept when schedule and enabled are unchanged and it is set; recomputed (from Now) on change, re-enable or when null; null when no schedule or disabled. No write at all when nothing changed (xmin test). `last_scheduled_at` never touched by apply. All inside the existing all-or-nothing transaction.
+- CLI line: `<id>: source <x>, mapping <y>` is unchanged for unscheduled sources; scheduled ones append `, next run <RFC3339 UTC>`; a cleared schedule appends `, schedule cleared (manual only or disabled)`. An invalid schedule fails in config load (exit 1, all errors, "nothing was written").
+
+Decisions (small, not in the docs):
+- `on_missed: skip` needs a notion of "missed" vs "on time": `SkipGrace = 5m` (const in `schedule`). 022 must compare slot time (not slot+jitter offset) against its now, or apply the offset before calling Plan, so a jittered on-time slot is not skipped.
+- `day_of_month: 0` is indistinguishable from unset (int type): monthly says "required", other cadences ignore it.
+- Stored `sources.schedule` is the normalised Spec JSON: `{"every","at","day_of_week"?,"day_of_month"? (-1 = last),"timezone","on_missed","jitter"}` (not the file text; the file text is still in `sources.config`).
+- `import _ "time/tzdata"` in `internal/schedule` (stdlib, +~450 KB) so a minimal image without zoneinfo still resolves IANA names; the dev container does have /usr/share/zoneinfo.
+- Disabled sources keep their stored schedule (only `next_run_at` is cleared); `sources_due` already excludes them via `enabled`.
+- Group example files are not loadable yet (no group loader); the example test validates the `schedule:` blocks inside them generically, and the http_json example (`partner-api`) by schedule block only.
+- No dependency added; go.mod untouched.
+
+Docs/runbooks the documentor / runbook-refiner must say:
+- docs/mapping-spec.md#schedule: only daily|weekly|monthly; `cron` rejected ("not supported yet"), remove "or `cron`" from the example comment and the "exactly one of every or cron" rule; `every` required; defaults (`at` 00:00, `timezone` Europe/London, `on_missed` run_once, `jitter` 0); `day_of_week` required for weekly and rejected otherwise; `day_of_month` 1-28 or `last`, required for monthly and rejected otherwise; jitter 0..1h; DST: gap runs at the transition instant once, repeated hour runs once at the first occurrence; `enabled: false` pauses and clears next_run_at; `skip` grace 5m.
+- docs/design.md Scheduler: no retry of failed runs (next slot is the retry), cron deferred, "daily, weekly, monthly or cron" in the goals line, jitter is a deterministic per-source offset (FNV-1a, computed in 021, applied in 022).
+- docs/data-model.md: columns `schedule` (normalised Spec JSON, shape above), `enabled`, `next_run_at`, `last_scheduled_at`, index `sources_due` now exist (migration 0003); fix the migrations sentence at line 100 (0003_schedule adds them; groups/templates/`group_id` still later).
+- docs/operations.md line ~374: scheduling does NOT run yet (loop is task 022); `sources apply` validates, stores the schedule, reports `next run <time>`; `importer schedule list` is task 022, not available.
+- docs/open-questions.md 3a: decided (no retry, Europe/London, run_once default, no cron).
+- CHANGELOG.md entry; docs/roadmap.md M7 progress if wanted.
+- Runbooks: onboarding-a-new-source.md (set a schedule, timezone default, `sources apply` prints `next run ...` / `schedule cleared`, invalid schedule lists all `schedule.<field>` errors); `migrate up` now prints `version 3` and the schema is version 3 in database-migrations.md, reparse-and-file-retention.md, run-the-grpc-server.md, demo-and-smoke-test.md, runbooks/README.md; uk-hpi-monthly-update.md still says the scheduler is not implemented (still true until 022, but `sources apply` now stores the schedule and next_run_at).
+- Validator round 1: PASS (51 DST/month cases == Python zoneinfo; migration 0003 up/down; sources apply behaviour). Known gap (documented, ADR-0007): with cron present other schedule errors are not listed. Docs roles ran; docs-check OK; gate OK.

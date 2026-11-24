@@ -1,7 +1,7 @@
 # Runbook: UK House Price Index monthly update
 
 **Owner role:** data operations (owner of the `uk-hpi-*` sources)  |  **Severity if this happens:** low (a missed month leaves the previous month's data in place; nothing is deleted)
-**Last verified:** 2026-11-22, task 016 (fixture runs and one real-file run with a binary built from the task 016 working tree, on a throwaway test database; figures marked "pack" come from the validator evidence pack)
+**Last verified:** 2026-11-24, task 021 (`sources apply` for `uk-hpi-average-prices` on a throwaway Postgres 16: `next run 2026-12-20T10:00:00Z`, re-apply, and `enabled: false` cleared it; the load figures below are from 2026-11-22, task 016: fixture runs and one real-file run, figures marked "pack" come from the validator evidence pack)
 
 ## When to use
 Once a month, after the Land Registry publishes the new UK HPI files. They appear about two months after the data month (the 2026-09 files were published 18 November 2026). Also use it when someone asks whether the UK HPI data is current.
@@ -13,7 +13,7 @@ Once a month, after the Land Registry publishes the new UK HPI files. They appea
 - Each run tries the previous 6 months, newest first. Example: a run on 2026-11-20 tries `2026-10` (404), then `2026-09` (200) and imports `2026-09`.
 - If the newest file is byte-identical to the last import (`etag`, `last_modified` or `content_hash`), the run ends with `status=unchanged_file` and exit 0. Nothing is parsed.
 - The publisher revises earlier months in later releases. A changed file upserts on `(source_id, natural_key)`, so the summary reports `updated=` for old months. This is normal.
-- **Scheduling:** the source files say `monthly, day 20, 10:00 Europe/London`, but the scheduler is NOT implemented yet. Each month the run is started by hand, or by a cron job that calls `importer run` (UNVERIFIED: no cron entry was installed or tested).
+- **Scheduling:** the source files carry `schedule: { every: monthly, day_of_month: 20, at: "10:00", timezone: Europe/London }`. `sources apply` stores it and prints `next run <time>` (task 021, throwaway database: `next run 2026-12-20T10:00:00Z`). Nothing runs at that time yet: the loop that starts scheduled imports is task 022 and NOT built. Until then start each month's run by hand, or by a cron job that calls `importer run` (UNVERIFIED: no cron entry was installed or tested). Schedule rules: [onboarding-a-new-source.md](onboarding-a-new-source.md#schedule-optional).
 
 ## Prerequisites
 - A built binary: `go build -o bin/importer ./cmd/importer` (or `make build`).

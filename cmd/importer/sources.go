@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -136,7 +137,14 @@ func runSources(args []string, stdout, stderr io.Writer) int {
 		case r.MappingVersion > 0:
 			m = fmt.Sprintf("v%d unchanged", r.MappingVersion)
 		}
-		fmt.Fprintf(stdout, "%s: source %s, mapping %s\n", r.SourceID, src, m)
+		line := fmt.Sprintf("%s: source %s, mapping %s", r.SourceID, src, m)
+		switch {
+		case r.NextRunAt != nil:
+			line += ", next run " + r.NextRunAt.UTC().Format(time.RFC3339)
+		case r.ScheduleChanged:
+			line += ", schedule cleared (manual only or disabled)"
+		}
+		fmt.Fprintln(stdout, line)
 	}
 	return exitOK
 }
@@ -152,6 +160,15 @@ func prepareItem(f config.SourceFile, canonical *mapping.Canonical, stdout io.Wr
 	item := store.ApplyItem{
 		Source:    store.Source{ID: f.Source.ID, Kind: f.Source.Kind, Config: cfg},
 		CreatedBy: defaultAppBy,
+		Disabled:  !f.Source.IsEnabled(),
+	}
+	if f.Source.Schedule != nil {
+		spec, err := f.Source.Schedule.Spec() // already validated by LoadDir; this fills in the defaults
+		if err != nil {
+			fmt.Fprintf(stdout, "%s: %v\n", f.SourcePath, err)
+			return store.ApplyItem{}, false
+		}
+		item.Schedule = &spec
 	}
 	if f.MappingPath == "" {
 		return item, true

@@ -11,7 +11,7 @@ setup, store the data in a database, and expose it through a gRPC API.
 - Add a new setup by writing **configuration**, not code, and add **many datasets** (hundreds) through a shared
   definition ([source groups](source-groups.md)).
 - **Never lose source data**; keep what the source actually sent.
-- **Cadence is part of a source's setup** (daily, weekly, monthly or cron), run by a built-in scheduler.
+- **Cadence is part of a source's setup** (daily, weekly or monthly; `cron` is deferred), run by a built-in scheduler.
 - Idempotent, observable imports (re-running a file does not duplicate data).
 - Serve a **stable, typed gRPC contract** regardless of source shape.
 - Change a mapping **without re-importing**.
@@ -64,8 +64,8 @@ health are tracked per dataset while configuration is written once. See [source-
 ### Scheduler
 Each source declares its own `schedule` (see [mapping-spec](mapping-spec.md#schedule)). The scheduler runs inside
 `importer serve` and:
-1. Computes `sources.next_run_at` from the schedule and timezone; polls for due sources (every 30s).
-2. Applies per-member jitter and a global concurrency limit (`IMPORT_CONCURRENCY`) and a shared per-host rate limit.
+1. Computes `sources.next_run_at` from the schedule and timezone (built in task 021, `schedule.Next`); polls for due sources every 30s (task 022, not built yet).
+2. Applies the jitter offset (`schedule.Offset`: deterministic FNV-1a of the source id, in [0, jitter); computed in task 021, applied in task 022) and a global concurrency limit (`IMPORT_CONCURRENCY`) and a shared per-host rate limit.
 3. Claims a due source with `SELECT ... FOR UPDATE SKIP LOCKED` and a per-source advisory lock, so several
    server replicas never run the same source twice and no leader election is needed.
 4. Starts a normal import run (`trigger = 'schedule'`), then computes the next `next_run_at` from the **scheduled**
@@ -73,7 +73,9 @@ Each source declares its own `schedule` (see [mapping-spec](mapping-spec.md#sche
 5. Applies `on_missed` after downtime: `run_once` (default: one catch-up run) or `skip`.
 6. Overlap policy is always skip: a source already running is not started again.
 Manual runs (`importer run`, `StartImport`) use the same path with `trigger = 'manual'`. Changing a schedule
-recomputes `next_run_at` immediately. A source can be paused with `enabled: false`.
+recomputes `next_run_at` immediately (`sources apply`, task 021). A source can be paused with `enabled: false`, which clears `next_run_at`.
+
+**Decision (task 021): no retry.** A failed run is not retried; the next scheduled slot is the retry. `cron` is deferred. See [ADR-0007](adr/0007-schedule-engine.md).
 
 ## 5a. Import and read flows
 

@@ -3,6 +3,9 @@
 All notable user-visible changes. Maintained by the `documentor` role. Newest first.
 
 ## Unreleased
+- `importer sources apply` validates each source's `schedule:` (`every` daily, weekly or monthly; `at`; `day_of_week`; `day_of_month` 1-28 or `last`; IANA `timezone`, default `Europe/London`; `on_missed`; `jitter` up to 1h) and lists every error by field, writing nothing; `cron:` is rejected as not supported yet (see [docs/mapping-spec.md](docs/mapping-spec.md#schedule)).
+- `sources apply` stores the schedule and sets `next_run_at`; sources with no schedule or with `enabled: false` have none. The scheduler loop that starts due runs is not built yet (task 022), so `importer serve` does not run scheduled sources.
+- Migration `0003_schedule` adds `sources.schedule`, `enabled`, `next_run_at`, `last_scheduled_at` and the `sources_due` index; the schema is version 3 (`importer migrate up` prints `version 3`).
 - A run whose source lock session is lost (killed session, database restart, dropped network) now stops as `failed` with `lost source lock (session terminated)` instead of continuing unprotected; the lock is checked every `DB_LOCK_CHECK_INTERVAL` (default `5s`, see [docs/operations.md](docs/operations.md#lost-source-lock)).
 - ASHE Table 20.7a annual gross pay imports from the real ONS zips as two standalone sources, `ashe-t20-2026p` (provisional) and `ashe-t20-2025r` (revised); suppression markers are kept as `quality_flag`, and source groups are not implemented yet (see [docs/sources/ons-ashe-table20.md](docs/sources/ons-ashe-table20.md)).
 - UK House Price Index sources (`uk-hpi-average-prices`, `uk-hpi-property-type`) import and serve from configuration only; `kind: csv` sources accept `table:` and `context:` and run the same row pipeline as xlsx (see [docs/sources/uk-hpi.md](docs/sources/uk-hpi.md)).

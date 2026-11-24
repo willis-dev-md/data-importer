@@ -16,6 +16,10 @@
 ## Scope
 `internal/scheduler/` (new), `internal/store/` (claiming queries), `internal/importer/` (trigger and scheduled_for passed to Run), `cmd/importer/` (serve wiring, `schedule list`, env), tests, task Log
 
+## Constraints from task 021
+- `schedule.Plan` must be called with the RAW slot/now, not slot+jitter offset: with `on_missed: skip` an offset over `SkipGrace` (5m) would count the slot as missed and skip it. Apply the offset only to the actual start time.
+- Schema version is now 3 (migration 0003_schedule).
+
 ## Out of scope
 cron expressions; metrics endpoint (separate task); retries; per-host rate limiting (document as not implemented); source groups.
 

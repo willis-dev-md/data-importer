@@ -1,7 +1,7 @@
 # Runbook: run the gRPC server (`importer serve`)
 
 **Owner role:** on-call engineer  |  **Severity if this happens:** medium (the server is down or `NOT_SERVING`; a client gets wrong or empty results)
-**Last verified:** 2026-11-21, task 011 (ran `make build`, `importer migrate up`, `sources apply` and `run` for the ONS example, `importer serve` plaintext with `SCAN_LIMIT` unset and `SCAN_LIMIT=100`, a Go gRPC client for `ListRecords` and `GetRecord`, a `psql` UPDATE to set `deleted_at` in the throwaway database, a `pg_ctl` immediate stop and restart of that database, and the startup errors below; throwaway Postgres from `scripts/testdb.sh`)
+**Last verified:** 2026-11-24, task 021 (`migrate up` then `migrate version` on a throwaway Postgres 16: `version 3`; the steps below are from 2026-11-21, task 011: ran `make build`, `importer migrate up`, `sources apply` and `run` for the ONS example, `importer serve` plaintext with `SCAN_LIMIT` unset and `SCAN_LIMIT=100`, a Go gRPC client for `ListRecords` and `GetRecord`, a `psql` UPDATE to set `deleted_at` in the throwaway database, a `pg_ctl` immediate stop and restart of that database, and the startup errors below; throwaway Postgres from `scripts/testdb.sh`)
 
 ## When to use
 Start, check or stop `importer serve`; health is `NOT_SERVING`; the process exits at startup; a client cannot connect; a client calls `DataService` (`ListRecords`, `GetRecord`) and gets an error, fewer records than expected, or a short page.
@@ -14,7 +14,7 @@ Reference: the `importer serve` section of [operations.md](../operations.md).
 - A health client and a data client. Neither `grpc_health_probe` nor `grpcurl` was installed when this was verified, so small Go clients were used (see Verify). `openssl` was installed and is used for the certificate.
 
 ## Steps
-1. Build and migrate. *(expected: `version 2` from `migrate up` on a fresh database; your version may differ)*
+1. Build and migrate. *(expected: `version 3` from `migrate up` on a fresh database; your version may differ)*
 ```bash
 make build
 eval "$(scripts/testdb.sh start)"   # local only; in production set DATABASE_URL yourself

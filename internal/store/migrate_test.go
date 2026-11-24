@@ -49,8 +49,8 @@ func TestMigrateUpDown(t *testing.T) {
 		t.Fatalf("initial version = %d, %v; want 0", v, err)
 	}
 	for i := 0; i < 2; i++ { // twice: idempotent
-		if v, err = store.Migrate(ctx, url, store.Up); err != nil || v != 2 {
-			t.Fatalf("up #%d = %d, %v; want 2", i, v, err)
+		if v, err = store.Migrate(ctx, url, store.Up); err != nil || v != 3 {
+			t.Fatalf("up #%d = %d, %v; want 3", i, v, err)
 		}
 	}
 	c := connect(t, url)
@@ -161,19 +161,50 @@ func TestMigrateUpDown(t *testing.T) {
 		t.Errorf("import_runs.file_id to a real file rejected: %v", err)
 	}
 
-	// Down one step removes source_files only (and the file_id foreign key), keeping the core tables and data.
+	// 0003 (schedule): columns, defaults and the partial index.
+	if q(`SELECT count(*) FROM information_schema.columns WHERE table_name='sources'
+	      AND column_name IN ('schedule','enabled','next_run_at','last_scheduled_at')`) != 4 {
+		t.Error("sources schedule columns missing")
+	}
+	if q(`SELECT count(*) FROM pg_indexes WHERE tablename='sources' AND indexname='sources_due'
+	      AND indexdef LIKE '%(next_run_at)%' AND indexdef LIKE '%enabled%' AND indexdef LIKE '%schedule IS NOT NULL%'`) != 1 {
+		t.Error("partial index sources_due missing or wrong")
+	}
+	if q(`SELECT count(*) FROM sources WHERE enabled AND schedule IS NULL AND next_run_at IS NULL AND last_scheduled_at IS NULL`) != 1 {
+		t.Error("existing source must be enabled with no schedule after 0003")
+	}
+
+	// Down one step removes the 0003 columns and index only, keeping the data.
+	if v, err = store.Migrate(ctx, url, store.Down); err != nil || v != 2 {
+		t.Fatalf("down (one step) = %d, %v; want 2", v, err)
+	}
+	if q(`SELECT count(*) FROM information_schema.columns WHERE table_name='sources'
+	      AND column_name IN ('schedule','enabled','next_run_at','last_scheduled_at')`) != 0 {
+		t.Error("schedule columns left after the 0003 down")
+	}
+	if q(`SELECT count(*) FROM pg_indexes WHERE indexname='sources_due'`) != 0 {
+		t.Error("sources_due left after the 0003 down")
+	}
+	if q(`SELECT count(*) FROM information_schema.columns WHERE table_name='sources'`) != 5 {
+		t.Error("the 0003 down must leave the five 0001 columns")
+	}
+	if q(`SELECT count(*) FROM sources WHERE id='s'`) != 1 || !tableSet(t, connect(t, url))["source_files"] {
+		t.Error("the 0003 down lost data or tables")
+	}
+
+	// Down another step removes source_files only (and the file_id foreign key), keeping the core tables and data.
 	if v, err = store.Migrate(ctx, url, store.Down); err != nil || v != 1 {
-		t.Fatalf("down (one step) = %d, %v; want 1", v, err)
+		t.Fatalf("down (second step) = %d, %v; want 1", v, err)
 	}
 	got = tableSet(t, connect(t, url))
 	if got["source_files"] || !got["import_runs"] || !got["raw_records"] {
-		t.Errorf("after one down: tables %v", got)
+		t.Errorf("after two downs: tables %v", got)
 	}
 	if q(`SELECT count(*) FROM information_schema.columns WHERE table_name='import_runs' AND column_name='file_id'`) != 1 {
 		t.Error("import_runs.file_id column must survive the 0002 down")
 	}
-	if v, err = store.Migrate(ctx, url, store.Up); err != nil || v != 2 {
-		t.Fatalf("up after down = %d, %v; want 2", v, err)
+	if v, err = store.Migrate(ctx, url, store.Up); err != nil || v != 3 {
+		t.Fatalf("up after down = %d, %v; want 3", v, err)
 	}
 	// The down cleared file_id (it pointed into the dropped table), so the up above could add the foreign key.
 	if q(`SELECT count(*) FROM import_runs WHERE file_id IS NOT NULL`) != 0 {
@@ -181,10 +212,10 @@ func TestMigrateUpDown(t *testing.T) {
 	}
 
 	// Down removes everything (only the migrator's own table may remain).
-	for i := 0; i < 2; i++ { // two migrations
+	for i := 0; i < 3; i++ { // three migrations
 		v, err = store.Migrate(ctx, url, store.Down)
-		if err != nil || int(v) != 1-i {
-			t.Fatalf("down #%d = %d, %v; want %d", i, v, err, 1-i)
+		if err != nil || int(v) != 2-i {
+			t.Fatalf("down #%d = %d, %v; want %d", i, v, err, 2-i)
 		}
 	}
 	c2 := connect(t, url)
@@ -198,7 +229,7 @@ func TestMigrateUpDown(t *testing.T) {
 	}
 
 	// up/down/up leaves a working schema.
-	if v, err = store.Migrate(ctx, url, store.Up); err != nil || v != 2 {
+	if v, err = store.Migrate(ctx, url, store.Up); err != nil || v != 3 {
 		t.Fatalf("re-up = %d, %v", v, err)
 	}
 	c3 := connect(t, url)

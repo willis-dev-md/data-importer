@@ -121,7 +121,7 @@ func TestCLIEndToEnd(t *testing.T) {
 	writeFile(t, dir, "ons-l55o.source.yaml", src)
 	writeFile(t, dir, "ons-l55o.mapping.yaml", readFile(t, filepath.Join(repo, "docs", "examples", "ons-l55o.mapping.yaml")))
 
-	c.expect(nil, 0, "version 2", "migrate", "up")
+	c.expect(nil, 0, "version 3", "migrate", "up")
 
 	// apply: creates the source and mapping v1
 	c.expect(nil, 0, "ons-l55o: source created, mapping v1 created", "sources", "apply", "--dir", dir, "--schema", schema)

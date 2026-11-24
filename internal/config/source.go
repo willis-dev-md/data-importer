@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/willis-dev-md/data-importer/internal/schedule"
 	"gopkg.in/yaml.v3"
 )
 
@@ -61,16 +62,55 @@ type Preamble struct {
 // MetaPrefix introduces a natural-key reference to preamble metadata, e.g. "@meta.CDID".
 const MetaPrefix = "@meta."
 
-// Schedule is carried through for the scheduler; it is not interpreted here.
-type Schedule struct {
-	Every      string `yaml:"every,omitempty"`
-	DayOfWeek  string `yaml:"day_of_week,omitempty"`
-	DayOfMonth int    `yaml:"day_of_month,omitempty"`
-	At         string `yaml:"at,omitempty"`
-	Timezone   string `yaml:"timezone,omitempty"`
-	Jitter     string `yaml:"jitter,omitempty"`
-	OnMissed   string `yaml:"on_missed,omitempty"`
+// DayOfMonth is the `day_of_month` of a monthly schedule: 1-28, or `last` (stored as schedule.LastDay).
+// Zero means not set. It reads and writes both forms, so existing files (plain integers) load unchanged.
+type DayOfMonth int
+
+// UnmarshalYAML accepts an integer or the word `last`.
+func (d *DayOfMonth) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind == yaml.ScalarNode && strings.EqualFold(strings.TrimSpace(n.Value), "last") {
+		*d = schedule.LastDay
+		return nil
+	}
+	var i int
+	if err := n.Decode(&i); err != nil {
+		return fmt.Errorf("day_of_month must be 1-28 or last, got %q", n.Value)
+	}
+	*d = DayOfMonth(i)
+	return nil
 }
+
+// MarshalYAML writes `last` for the month end and the integer otherwise.
+func (d DayOfMonth) MarshalYAML() (any, error) {
+	if d == schedule.LastDay {
+		return "last", nil
+	}
+	return int(d), nil
+}
+
+// Schedule is the `schedule:` block; it is validated by Validate and turned into a schedule.Spec by Spec.
+type Schedule struct {
+	Every      string     `yaml:"every,omitempty"`
+	Cron       string     `yaml:"cron,omitempty"` // rejected: not supported yet
+	DayOfWeek  string     `yaml:"day_of_week,omitempty"`
+	DayOfMonth DayOfMonth `yaml:"day_of_month,omitempty"`
+	At         string     `yaml:"at,omitempty"`
+	Timezone   string     `yaml:"timezone,omitempty"`
+	Jitter     string     `yaml:"jitter,omitempty"`
+	OnMissed   string     `yaml:"on_missed,omitempty"`
+}
+
+// Spec validates the schedule and returns the normalised spec (defaults filled in). Errors name their field and
+// are all reported together.
+func (sc Schedule) Spec() (schedule.Spec, error) {
+	return schedule.New(schedule.Input{
+		Every: sc.Every, At: sc.At, DayOfWeek: sc.DayOfWeek, DayOfMonth: int(sc.DayOfMonth),
+		Timezone: sc.Timezone, Jitter: sc.Jitter, OnMissed: sc.OnMissed, Cron: sc.Cron,
+	})
+}
+
+// IsEnabled reports whether the source is enabled (default true).
+func (s *Source) IsEnabled() bool { return s.Enabled == nil || *s.Enabled }
 
 // HasHeader reports whether the csv has a header row (default true).
 func (c CSV) HasHeader() bool { return c.Header == nil || *c.Header }
@@ -170,6 +210,11 @@ func (s *Source) Validate() error {
 	}
 	if s.Auth != nil {
 		s.Auth.validate(bad)
+	}
+	if s.Schedule != nil {
+		if _, err := s.Schedule.Spec(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if s.Kind == KindCSV {
 		s.validateCSV(bad)

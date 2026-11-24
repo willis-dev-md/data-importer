@@ -21,7 +21,7 @@ func TestCLIReparse(t *testing.T) {
 
 	c := &cli{t: t, bin: buildBinary(t), url: testutil.NewDatabaseURL(t)}
 	ctx := context.Background()
-	c.expect(nil, 0, "version 2", "migrate", "up")
+	c.expect(nil, 0, "version 3", "migrate", "up")
 	pool, err := pgxpool.New(ctx, c.url)
 	if err != nil {
 		t.Fatal(err)

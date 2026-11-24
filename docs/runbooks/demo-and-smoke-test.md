@@ -1,7 +1,7 @@
 # Runbook: Demo and smoke test (ONS slice: CSV to Postgres to gRPC)
 
 **Owner role:** release engineer  |  **Severity if this happens:** medium (a failing smoke test blocks a release; the demo itself changes nothing outside its own temp files and database)
-**Last verified:** 2026-11-21, task 012 (ran `scripts/demo.sh` twice with its own database, with a caller-supplied `DATABASE_URL`, with `psql` and with `python3` hidden from PATH, interrupted with SIGINT, SIGTERM and SIGKILL; ran `go test -race -count=1 ./internal/e2e` with a database, without one and against an unreachable port; Postgres 16.15 from `scripts/testdb.sh`; `grpcurl` not installed, so its branch is UNVERIFIED)
+**Last verified:** 2026-11-24, task 021 (`migrate up` on a throwaway Postgres 16: `version 3`; the `migrate up` output line below changed from `version 2`; the rest is from 2026-11-21, task 012: ran `scripts/demo.sh` twice with its own database, with a caller-supplied `DATABASE_URL`, with `psql` and with `python3` hidden from PATH, interrupted with SIGINT, SIGTERM and SIGKILL; ran `go test -race -count=1 ./internal/e2e` with a database, without one and against an unreachable port; Postgres 16.15 from `scripts/testdb.sh`; `grpcurl` not installed, so its branch is UNVERIFIED)
 
 ## When to use
 Before a release, after a change to the ONS slice (`scripts/demo.sh`, `internal/e2e`, `cmd/importer`, `ListRecords`), to show the demo to someone, or when `scripts/demo.sh` or `go test ./internal/e2e` fails.
@@ -27,7 +27,7 @@ Expected output (real, first run; record bodies shortened, see the note under th
 ==> starting a temporary Postgres
 ==> building the importer
 ==> migrate up
-version 2
+version 3
 ==> sources apply
 ons-l55o: source created, mapping v1 created
 ==> run (import the fixture)

@@ -28,7 +28,7 @@ and keys. A test that terminated other packages' lock sessions caused a flaky 60
 ## End-to-end test and demo (task 012)
 `internal/e2e/e2e_test.go` (`TestONSSliceEndToEnd`) builds the real binary (`cmd/importer`) and runs it against an ephemeral
 database from `internal/testutil`. It asserts, in order:
-1. `migrate up` prints `version 2`.
+1. `migrate up` prints `version 3`.
 2. `sources apply` on a temp copy of `docs/examples/ons-l55o.source.yaml` and `ons-l55o.mapping.yaml`, whose `location` is `file://` plus `testdata/ons/l55o.csv`, prints `ons-l55o: source created`.
 3. `run --source ons-l55o` prints `inserted=642`.
 4. `serve` on `127.0.0.1:0` (plaintext) answers `ListRecords` from a real gRPC client with exact counts: 642 (all), 454 (`period_type` month), 37 (year), 151 (quarter), 108 (month and `value` >= 3.5).

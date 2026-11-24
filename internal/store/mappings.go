@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/willis-dev-md/data-importer/internal/schedule"
 )
 
 // AbandonedError is the error text of a run closed by SweepAbandonedRuns.
@@ -29,6 +30,12 @@ type ApplyItem struct {
 	Source    Source          // ActiveMappingVersion is ignored: Apply manages it
 	Spec      json.RawMessage // mapping document as a JSON object; empty = leave mappings alone
 	CreatedBy string
+
+	// Schedule is the validated schedule of the source; nil = manual only. Disabled pauses it (the zero value is
+	// enabled). Now is the clock for next_run_at; the zero value means time.Now().
+	Schedule *schedule.Spec
+	Disabled bool
+	Now      time.Time
 }
 
 // ApplyResult says what Apply did for one item.
@@ -38,12 +45,18 @@ type ApplyResult struct {
 	SourceUpdated  bool // kind or config differed
 	MappingVersion int  // active version after Apply; 0 = none
 	MappingCreated bool // a new version was stored and activated
+
+	ScheduleChanged bool       // the stored schedule or enabled flag differed
+	NextRunAt       *time.Time // next_run_at after Apply; nil = not scheduled (manual only, or disabled)
 }
 
 // Apply upserts every item in one transaction (all or nothing). A source row is
 // only written when it is new or its kind or config differs. A mapping is stored
 // as a new version, and activated, only when its content (ignoring the
 // "version" key) differs from the active version; otherwise nothing is written.
+// The schedule and enabled flag are stored, and next_run_at is recomputed (from Now) when the schedule changes, the
+// source is re-enabled, or next_run_at is unset; an identical schedule keeps next_run_at. A source without a
+// schedule, or a disabled one, has next_run_at null.
 // Items are processed in order, so give them in a stable order.
 func (s *Store) Apply(ctx context.Context, items []ApplyItem) ([]ApplyResult, error) {
 	var out []ApplyResult
@@ -89,6 +102,9 @@ RETURNING (xmax = 0)`, id, it.Source.Kind, string(cfg)).Scan(&inserted)
 	var active *int
 	if err := tx.QueryRow(ctx, `SELECT active_mapping_version FROM sources WHERE id = $1 FOR UPDATE`, id).Scan(&active); err != nil {
 		return res, fmt.Errorf("apply source %q: %w", id, err)
+	}
+	if err := applySchedule(ctx, tx, it, &res); err != nil {
+		return res, err
 	}
 	if active != nil {
 		res.MappingVersion = *active
@@ -223,4 +239,75 @@ RETURNING r.id`, AbandonedError)
 		return nil, fmt.Errorf("sweep abandoned runs: %w", err)
 	}
 	return ids, nil
+}
+
+// applySchedule stores the schedule and enabled flag of one source (its row is already locked) and maintains
+// next_run_at. last_scheduled_at is never touched here.
+func applySchedule(ctx context.Context, tx pgx.Tx, it ApplyItem, res *ApplyResult) error {
+	id := it.Source.ID
+	var (
+		oldRaw     []byte
+		oldEnabled bool
+		oldNext    *time.Time
+	)
+	if err := tx.QueryRow(ctx, `SELECT schedule, enabled, next_run_at FROM sources WHERE id = $1`, id).
+		Scan(&oldRaw, &oldEnabled, &oldNext); err != nil {
+		return fmt.Errorf("apply schedule of %q: %w", id, err)
+	}
+	enabled := !it.Disabled
+	var newJSON []byte
+	if it.Schedule != nil {
+		b, err := json.Marshal(it.Schedule)
+		if err != nil {
+			return fmt.Errorf("apply schedule of %q: %w", id, err)
+		}
+		newJSON = b
+	}
+	var old *schedule.Spec
+	if oldRaw != nil {
+		var o schedule.Spec
+		if err := json.Unmarshal(oldRaw, &o); err == nil {
+			old = &o
+		}
+	}
+	same := (old == nil) == (it.Schedule == nil) && (old == nil || *old == *it.Schedule)
+	res.ScheduleChanged = !same || oldEnabled != enabled
+
+	var next *time.Time
+	switch {
+	case it.Schedule == nil || !enabled:
+		// manual only or paused: nothing is due
+	case same && oldEnabled && oldNext != nil:
+		next = oldNext
+	default:
+		now := it.Now
+		if now.IsZero() {
+			now = time.Now()
+		}
+		n, err := schedule.Next(*it.Schedule, now)
+		if err != nil {
+			return fmt.Errorf("apply schedule of %q: %w", id, err)
+		}
+		next = &n
+	}
+	res.NextRunAt = next
+	if !res.ScheduleChanged && sameTime(oldNext, next) {
+		return nil
+	}
+	var sched any
+	if newJSON != nil {
+		sched = string(newJSON)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE sources SET schedule = $2::jsonb, enabled = $3, next_run_at = $4 WHERE id = $1`,
+		id, sched, enabled, next); err != nil {
+		return fmt.Errorf("apply schedule of %q: %w", id, err)
+	}
+	return nil
+}
+
+func sameTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
 }

@@ -20,9 +20,9 @@ CREATE TABLE sources (
   kind          text NOT NULL CHECK (kind IN ('csv','xlsx','http_json')),
   config        jsonb NOT NULL,              -- parsed source config (no secrets)
   active_mapping_version int,
-  schedule      jsonb,                       -- null = manual only
+  schedule      jsonb,                       -- null = manual only; normalised spec, see mapping-spec#schedule
   enabled       boolean NOT NULL DEFAULT true,
-  next_run_at   timestamptz,                 -- maintained by the scheduler
+  next_run_at   timestamptz,                 -- set by sources apply; advanced by the scheduler (task 022, not built yet)
   last_scheduled_at timestamptz,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
@@ -97,13 +97,13 @@ Notes:
 - `(source_id, natural_key)` scoping stops two setups overwriting each other.
 - `content_hash` makes re-imports cheap and gives accurate `unchanged` counts.
 - Optional history: `raw_record_versions` (append-only) if audit of changes is needed (open question).
-- Migrations via `golang-migrate` in `migrations/` (embedded; `store.Migrate`; applied by `importer migrate up|down|version`, `down` rolls back one step). `0001_core` creates only `sources`, `mappings`, `import_runs`, `raw_records`, `import_errors`; `0002_source_files` adds `source_files` and the foreign key `import_runs.file_id -> source_files(id)`; groups, templates, and the `group_id`/`schedule`/`enabled`/`next_run_at`/`last_scheduled_at` columns come in later migrations.
+- Migrations via `golang-migrate` in `migrations/` (embedded; `store.Migrate`; applied by `importer migrate up|down|version`, `down` rolls back one step). `0001_core` creates only `sources`, `mappings`, `import_runs`, `raw_records`, `import_errors`; `0002_source_files` adds `source_files` and the foreign key `import_runs.file_id -> source_files(id)`; `0003_schedule` adds `sources.schedule`, `enabled`, `next_run_at`, `last_scheduled_at` and the partial index `sources_due` (decision: [ADR-0007](adr/0007-schedule-engine.md)); groups, templates and `group_id` come in later migrations.
 
 Decisions (task 002):
 - Runner: golang-migrate v4.18.3 with the pgx5 driver and an `iofs` source over SQL embedded by `migrations/embed.go`. The applied version is stored in `schema_migrations`.
 - `down` rolls back one step; at version 0 it is a no-op. `up` is idempotent.
 - `sources.kind` CHECK allows `csv`, `xlsx`, `http_json` (as in `0001_core.up.sql`).
-- The `sources_due` index and the `import_runs.file_id` foreign key are deliberately left to later migrations; `file_id` was a plain `bigint` until task 014, which added the foreign key in `0002_source_files`.
+- `file_id` was a plain `bigint` until task 014, which added the foreign key in `0002_source_files`. The `sources_due` index was not in `0001_core`; `0003_schedule` added it (task 021).
 
 Decisions (task 003):
 - **Natural key** (`record.Key(parts...)`): a JSON array of the key parts as strings, e.g. `["L55O","1989"]` (no HTML escaping). Injective: parts containing `|`, quotes or commas cannot collide. `natural_key` is opaque to the store.
@@ -135,7 +135,7 @@ Decisions (task 018):
 - **Evidence (BoE column-shift copy, [sources/boe-baserate](sources/boe-baserate.md)):** a column inserted before the rate column left the `month` key part blank, so 854 valid records collapsed onto 773 natural keys. Before this rule: `status=aborted inserted=773 failed=8` (862 rows read), the 81 collisions were overwritten and counted once, silently. After it: `inserted=773 failed=89` (81 duplicate errors + 8 normalize errors), aborted at `max_error_ratio: 0`; 773 + 81 + 8 = 862, nothing lost silently. Dry run: `failed=89`.
 
 ## Decisions (task 014)
-- **Schema:** migration `0002_source_files` creates `source_files` as in the table above (`UNIQUE (source_id, sha256)`, FK `run_id -> import_runs(id)`, `source_id -> sources(id)`) and the FK `import_runs.file_id -> source_files(id)`, with indexes on `import_runs(file_id)` and `(source_id, id)`. Down clears `file_id`, drops the FK and the table. `importer migrate up` prints `version 2`; one `migrate down` goes from 2 to 1.
+- **Schema:** migration `0002_source_files` creates `source_files` as in the table above (`UNIQUE (source_id, sha256)`, FK `run_id -> import_runs(id)`, `source_id -> sources(id)`) and the FK `import_runs.file_id -> source_files(id)`, with indexes on `import_runs(file_id)` and `(source_id, id)`. Down clears `file_id`, drops the FK and the table. When 0002 was the latest migration, `importer migrate up` printed `version 2` and one `migrate down` went from 2 to 1. The schema is version 3 since task 021 (see the migrations sentence above).
 - **File store** (`store.FileStore` with `Put` and `Open`; implementation `store.DirFileStore`): files live in a local directory, chosen over large objects and object storage for now. Path `<dir>/<aa>/<sha256>` (`<aa>` = first two hex digits of the SHA-256). The only input to a path is the 64-hex SHA-256, so no name can leave the directory. Directories are 0700, files 0600. A write goes to a temp file, is fsynced and renamed (atomic). The same bytes stored twice are one file; each source keeps its own `source_files` row.
 - **Verification:** `Open` re-hashes the bytes. A corrupt file fails with `stored file is corrupt (SHA-256 mismatch)`, a missing one with `stored file is missing`; both exit 1 from the CLI.
 - **Size:** the fetch limit applies (256 MB; the xlsx workbook limit is 100 MB, task 013). CSV is streamed (fetch, store, verify, parse), never buffered.

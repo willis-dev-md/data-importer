@@ -227,7 +227,7 @@ func TestONSSliceEndToEnd(t *testing.T) {
 		}
 	}
 
-	runImporter(t, bin, dbURL, "version 2", "migrate", "up")
+	runImporter(t, bin, dbURL, "version 3", "migrate", "up")
 	runImporter(t, bin, dbURL, "ons-l55o: source created", "sources", "apply", "--dir", dir, "--schema", schema)
 	runImporter(t, bin, dbURL, "inserted=642", "run", "--source", "ons-l55o")
 
@@ -360,7 +360,7 @@ func TestUKHPIEndToEnd(t *testing.T) {
 		}
 	}
 
-	runImporter(t, bin, dbURL, "version 2", "migrate", "up")
+	runImporter(t, bin, dbURL, "version 3", "migrate", "up")
 	runImporter(t, bin, dbURL, "uk-hpi-average-prices: source created", "sources", "apply", "--dir", dir, "--schema", schema)
 	runImporter(t, bin, dbURL, "inserted=3402", "run", "--source", "uk-hpi-average-prices")
 	runImporter(t, bin, dbURL, "inserted=4152", "run", "--source", "uk-hpi-property-type")
