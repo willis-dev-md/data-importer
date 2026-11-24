@@ -85,7 +85,7 @@ recomputes `next_run_at` immediately. A source can be paused with `enabled: fals
    (SHA-256 of canonical JSON); see [data-model](data-model.md#decisions-task-003).
 4. Upsert `raw_records` on `(source_id, natural_key)` (`store.UpsertRaw`); when `content_hash` is unchanged the
    payload is not rewritten, only `last_run_id` is set (counts as `unchanged`). Duplicate keys in one run: the first record wins; a later record with the same key is a row error, not a merge ([data-model](data-model.md#decisions-task-018)).
-   A per-source advisory lock (`store.TryAdvisoryLock`) keeps two runs of one source from overlapping.
+   A per-source advisory lock (`store.TryAdvisoryLockMonitored`, see failure handling) keeps two runs of one source from overlapping.
 5. Track field names/types seen (shape summary) on the run.
 6. Optional `missing_policy: tombstone`: after a **complete** run, mark rows not seen as `deleted_at = now()`.
 7. Close run with counts (`inserted`, `updated`, `unchanged`, `failed`, `tombstoned`) and status.
@@ -190,7 +190,7 @@ Read-time mapping and JSONB filtering are fine for moderate volume. Escape hatch
 
 ## 9. Failure handling
 
-- Runs are resumable per chunk; a run killed without cleanup is marked `failed` with error `abandoned (process died)` by `store.SweepAbandonedRuns`, called at the start of every real `importer run` (not in `--dry-run`; the future server calls it at start). It only touches `running` runs whose source advisory lock is not held by any live session, so a live run is never swept; a stale row of a source that has a live run right now stays until that run ends.
+- Runs are resumable per chunk; a run killed without cleanup is marked `failed` with error `abandoned (process died)` by `store.SweepAbandonedRuns`, called at the start of every real `importer run` (not in `--dry-run`; the future server calls it at start). It only touches `running` runs whose source advisory lock is not held by any live session, so a live run is never swept; a stale row of a source that has a live run right now stays until that run ends. A run whose lock is lost may be swept in the gap; its own final state then overwrites that row ([operations](operations.md#lost-source-lock)).
 - Upserts are idempotent, so retries are safe.
 - API sources: retry with exponential backoff and jitter, honour `Retry-After`, per-source rate limit.
 - `max_error_ratio` aborts before committing a mostly-bad file (chunks already committed are tagged with
@@ -206,10 +206,10 @@ Read-time mapping and JSONB filtering are fine for moderate volume. Escape hatch
   before a run row is created. The lock is released on success, failure, abort, cancel and panic (unit test
   `TestLockSlotFreedOnEveryExit`). Settings: [operations](operations.md#connection-pool-and-source-locks); decisions:
   [data model, task 019](data-model.md#decisions-task-019).
-- **Known limit: a killed lock session.** If the lock connection is killed mid-run (for example with
-  `pg_terminate_backend`), Postgres releases the lock but the run keeps going. A second run of the same source can then
-  start and succeed, and its abandoned-run sweep marks the first run `failed` while both write the same source. A run
-  does not yet notice that it lost its lock; task 020 makes it stop. See the [roadmap backlog](roadmap.md#hardening-backlog).
+- **Lost source lock (task 020).** A real run's source lock comes from `store.TryAdvisoryLockMonitored`, which runs one goroutine that every `DB_LOCK_CHECK_INTERVAL` (default 5 s, range 10 ms to 10 m) makes one read-only `pg_locks` lookup on the run's own lock connection: is the session alive and does it still hold the key? The check never releases the lock and times out after 10 s; a failed or timed-out check counts as lost. On loss the run is cancelled and finishes `failed` with `lost source lock (session terminated): ...`, which outranks abort or success at the last moment. Batches already committed stay tagged with the run id. The monitor is joined before the lock is released, on every exit (success, failure, cancel, panic). Settings: [operations](operations.md#lost-source-lock); decisions: [data model, task 020](data-model.md#decisions-task-020).
+- **Detection window (honest):** between the loss and its detection (at most one interval plus the check round trip) the run still writes, and another run of the same source can start. After detection the first run ends `failed` within one batch; a run started after that is legitimate.
+- **Sweep rule:** `SweepAbandonedRuns` fails a `running` row only when its source lock is not held, so a live run, including one being re-checked, is never swept.
+- **Evidence (validator, not re-run here):** with the real binary, `pg_terminate_backend` on the lock session mid-run left 160000 rows kept with `first_run_id=5`, and the rerun succeeded.
 
 ## 10. Security
 

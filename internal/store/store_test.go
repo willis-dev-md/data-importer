@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -732,12 +733,12 @@ func TestOpenPoolEnv(t *testing.T) {
 	url := testutil.NewDatabaseURL(t)
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 	ctx := context.Background()
-	pool, opts, err := store.OpenPool(ctx, url, env(map[string]string{"DB_MAX_CONNS": "3", "DB_LOCK_MAX_CONNS": "5", "DB_LOCK_WAIT": "7s"}))
+	pool, opts, err := store.OpenPool(ctx, url, env(map[string]string{"DB_MAX_CONNS": "3", "DB_LOCK_MAX_CONNS": "5", "DB_LOCK_WAIT": "7s", "DB_LOCK_CHECK_INTERVAL": "250ms"}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if pool.Config().MaxConns != 3 || opts.LockConns != 5 || opts.LockWait != 7*time.Second {
+	if pool.Config().MaxConns != 3 || opts.LockConns != 5 || opts.LockWait != 7*time.Second || opts.LockCheckInterval != 250*time.Millisecond {
 		t.Fatalf("got max=%d opts=%+v", pool.Config().MaxConns, opts)
 	}
 	pool2, opts2, err := store.OpenPool(ctx, url, env(nil))
@@ -751,6 +752,8 @@ func TestOpenPoolEnv(t *testing.T) {
 	for _, bad := range []map[string]string{
 		{"DB_MAX_CONNS": "0"}, {"DB_MAX_CONNS": "x"}, {"DB_LOCK_MAX_CONNS": "-1"},
 		{"DB_LOCK_WAIT": "0s"}, {"DB_LOCK_WAIT": "soon"},
+		{"DB_LOCK_CHECK_INTERVAL": "0s"}, {"DB_LOCK_CHECK_INTERVAL": "1ms"}, {"DB_LOCK_CHECK_INTERVAL": "11m"},
+		{"DB_LOCK_CHECK_INTERVAL": "-5s"}, {"DB_LOCK_CHECK_INTERVAL": "often"}, {"DB_LOCK_CHECK_INTERVAL": "5"},
 	} {
 		if p, _, err := store.OpenPool(ctx, url, env(bad)); err == nil {
 			p.Close()
@@ -775,5 +778,59 @@ func TestConnectionBudgetWarning(t *testing.T) {
 		if warn && (!strings.Contains(msg, fmt.Sprint(tc.work)) || !strings.Contains(msg, fmt.Sprint(tc.lock)) || !strings.Contains(msg, "DB_MAX_CONNS") || !strings.Contains(msg, "DB_LOCK_MAX_CONNS")) {
 			t.Errorf("%+v: message %q", tc, msg)
 		}
+	}
+}
+
+func goroutinesInMonitor() bool {
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	return strings.Contains(string(buf), "(*Store).monitorLock")
+}
+
+// A monitored lock reports a terminated session once, via onLost, with
+// ErrLockLost; unlock afterwards is safe and leaves no goroutine.
+func TestMonitoredLockReportsLoss(t *testing.T) {
+	ctx := context.Background()
+	_, pool := newStore(t)
+	s := store.NewWithOptions(pool, store.Options{LockCheckInterval: store.MinLockCheckInterval})
+	lost := make(chan error, 4)
+	unlock, ok, err := s.TryAdvisoryLockMonitored(ctx, "src", func(e error) { lost <- e })
+	if err != nil || !ok {
+		t.Fatalf("lock: ok=%v err=%v", ok, err)
+	}
+	var killed int
+	err = pool.QueryRow(ctx, `
+SELECT count(*) FROM (
+  SELECT pg_terminate_backend(l.pid) FROM pg_locks l
+  WHERE l.locktype = 'advisory' AND l.granted AND l.pid <> pg_backend_pid()
+    AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+) x`).Scan(&killed)
+	if err != nil || killed != 1 {
+		t.Fatalf("terminate: killed=%d err=%v", killed, err)
+	}
+	select {
+	case e := <-lost:
+		if !errors.Is(e, store.ErrLockLost) || !strings.HasPrefix(e.Error(), "lost source lock (session terminated)") {
+			t.Fatalf("lost error = %v", e)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("loss not reported")
+	}
+	unlock()
+	unlock()
+	if goroutinesInMonitor() {
+		t.Fatal("monitor goroutine still running after unlock")
+	}
+	if len(lost) != 0 {
+		t.Fatalf("onLost called %d more times", len(lost))
+	}
+	// Healthy lock released normally: no report, no goroutine, lock free again.
+	u2, ok, err := s.TryAdvisoryLockMonitored(ctx, "src", func(e error) { lost <- e })
+	if err != nil || !ok {
+		t.Fatalf("relock: ok=%v err=%v", ok, err)
+	}
+	u2()
+	if goroutinesInMonitor() || len(lost) != 0 {
+		t.Fatalf("after normal unlock: monitor running=%v reports=%d", goroutinesInMonitor(), len(lost))
 	}
 }

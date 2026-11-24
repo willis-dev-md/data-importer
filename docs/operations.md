@@ -14,6 +14,7 @@
 | `DB_MAX_CONNS` | work pool size, default `max(4, NumCPU)`; positive integer, otherwise exit 2 ([details](#connection-pool-and-source-locks)) |
 | `DB_LOCK_MAX_CONNS` | lock connections per process (concurrent source locks), default `8`; positive integer ([details](#connection-pool-and-source-locks)) |
 | `DB_LOCK_WAIT` | how long a run waits for a free lock connection, default `30s`; positive Go duration ([details](#connection-pool-and-source-locks)) |
+| `DB_LOCK_CHECK_INTERVAL` | how often a running import checks that its source lock session still holds the lock, default `5s`; Go duration from `10ms` to `10m`, otherwise exit 2 ([details](#lost-source-lock)) |
 | token env vars | any name given in a source's `auth.token_env`; read at `importer run` time only |
 
 ## Connection pool and source locks
@@ -28,6 +29,7 @@ this change, N concurrent runs with a pool of N or fewer connections could wait 
 | `DB_MAX_CONNS` | `max(4, NumCPU)` | work pool size (the pgxpool default) |
 | `DB_LOCK_MAX_CONNS` | `8` | lock connections per process = concurrent source locks per process |
 | `DB_LOCK_WAIT` | `30s` | Go duration; how long a run waits for a free lock connection |
+| `DB_LOCK_CHECK_INTERVAL` | `5s` | Go duration, `10ms` to `10m`; interval of the lock-session check of a running import ([lost source lock](#lost-source-lock)) |
 
 - An unset or empty variable means the default. An invalid value (`0`, negative, not a number, or a duration without
   a unit such as `30`) exits 2 before any database connection is made, and the message names the variable:
@@ -54,6 +56,27 @@ test "$rc" -eq 2
   that start many runs at once.
 - Lock connections use a copy of the work pool's connection settings (`application_name`, `search_path`, `sslmode`).
   Pool connect hooks are not applied to them (none are set). TLS on lock connections is not tested.
+
+## Lost source lock
+
+A running import holds its source lock on a dedicated lock connection. Every `DB_LOCK_CHECK_INTERVAL` (default `5s`) the run sends one read-only `pg_locks` query on that connection, which asks whether its own session still holds the source's lock. The check has a 10 s timeout. A failed or timed-out check counts as a lost lock.
+
+When the lock is lost (the lock session was terminated, the database restarted or failed over, the network dropped, or an idle-session killer closed the connection), the run is cancelled and finishes `failed` with error `lost source lock (session terminated): <detail>`; the CLI exits 1. The detail is the driver error or `session no longer holds the lock`. If the run had also failed with another error, that error follows in parentheses. Batches committed before the loss stay in `raw_records`, tagged with the run id. A re-run is safe because upserts are idempotent.
+
+- **Window:** between the loss and its detection (at most one interval plus the check round trip, about 5 s by default) the run may still write, and another run of the same source can start in that window. After detection the first run is cancelled and ends within one batch; a run started after that is legitimate.
+- **Sweep:** `importer run` marks a `running` row failed only when its source lock is not held, so a live run is never swept, including while it is being checked. In the gap after a loss a sweep may mark the row `abandoned (process died)`; the run's own final state then overwrites it with the lost-lock error.
+- **Cost:** one query per interval per running import, on the lock connection only. Nothing runs on the work pool or per record. Validator measurement (not re-run here): a 200k-row run took 9.76 s, against 9.52 to 9.86 s in the same comparison.
+
+An invalid `DB_LOCK_CHECK_INTERVAL` exits 2 on the same path as `DB_MAX_CONNS`. The block below was run once by the documentor; the run also prints a `file store:` line first, and only the error line is shown.
+
+<!-- verify -->
+```bash
+go build -o bin/importer ./cmd/importer
+rc=0; DB_LOCK_CHECK_INTERVAL="1ms" DATABASE_URL=postgres://postgres@127.0.0.1:1/x bin/importer run --source ons-l55o || rc=$?
+test "$rc" -eq 2
+```
+
+    importer run: DB_LOCK_CHECK_INTERVAL="1ms": want a Go duration between 10ms and 10m0s such as 5s
 
 ## CLI
     importer migrate up
@@ -143,8 +166,8 @@ Real output, first run, repeat run, and a dry run on an empty database:
 | Exit | Meaning |
 |---|---|
 | 0 | run succeeded |
-| 1 | run `failed` or `aborted` (summary still printed on stdout, error on stderr), unknown source, invalid stored config, database error, no lock connection free within `DB_LOCK_WAIT` ([details](#connection-pool-and-source-locks)) |
-| 2 | usage error: missing `--source`, missing `DATABASE_URL`, missing/empty token env var, unknown flag, invalid `DB_MAX_CONNS`, `DB_LOCK_MAX_CONNS` or `DB_LOCK_WAIT` |
+| 1 | run `failed` or `aborted` (summary still printed on stdout, error on stderr; a lost source lock is `failed`, see [lost source lock](#lost-source-lock)), unknown source, invalid stored config, database error, no lock connection free within `DB_LOCK_WAIT` ([details](#connection-pool-and-source-locks)) |
+| 2 | usage error: missing `--source`, missing `DATABASE_URL`, missing/empty token env var, unknown flag, invalid `DB_MAX_CONNS`, `DB_LOCK_MAX_CONNS`, `DB_LOCK_WAIT` or `DB_LOCK_CHECK_INTERVAL` |
 | 3 | another run of the source holds the lock (already running) |
 
     $ importer run                       -> usage: importer run --source <id> [--dry-run]   (exit 2)

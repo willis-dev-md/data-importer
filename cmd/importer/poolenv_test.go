@@ -17,6 +17,9 @@ func TestInvalidPoolEnvIsUsageError(t *testing.T) {
 		{"DB_LOCK_MAX_CONNS", "x", "positive integer"},
 		{"DB_LOCK_WAIT", "0", "positive Go duration such as 30s"},
 		{"DB_LOCK_WAIT", "xx", "positive Go duration such as 30s"},
+		{"DB_LOCK_CHECK_INTERVAL", "0", "Go duration between"},
+		{"DB_LOCK_CHECK_INTERVAL", "1h", "Go duration between"},
+		{"DB_LOCK_CHECK_INTERVAL", "often", "Go duration between"},
 	}
 	dir := t.TempDir()
 	for _, f := range []string{"ons-l55o.source.yaml", "ons-l55o.mapping.yaml"} {

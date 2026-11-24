@@ -16,6 +16,12 @@ import (
 const (
 	DefaultLockConns = 8
 	DefaultLockWait  = 30 * time.Second
+
+	// The lock monitor checks its session every interval; the interval is bounded
+	// so a typo can neither hammer the database nor make detection useless.
+	DefaultLockCheckInterval = 5 * time.Second
+	MinLockCheckInterval     = 10 * time.Millisecond
+	MaxLockCheckInterval     = 10 * time.Minute
 )
 
 // Options configures the advisory-lock connections of a Store. They are
@@ -24,6 +30,10 @@ const (
 type Options struct {
 	LockConns int           // max concurrent source locks (default DefaultLockConns)
 	LockWait  time.Duration // max wait for a free lock slot (default DefaultLockWait)
+	// LockCheckInterval is how often a monitored lock (TryAdvisoryLockMonitored)
+	// verifies that its session still holds the lock (default
+	// DefaultLockCheckInterval; clamped to [MinLockCheckInterval, MaxLockCheckInterval]).
+	LockCheckInterval time.Duration
 }
 
 // Environment variables read by OpenPool.
@@ -31,6 +41,9 @@ const (
 	EnvMaxConns     = "DB_MAX_CONNS"      // work pool size (default max(4, NumCPU), pgxpool's default)
 	EnvLockMaxConns = "DB_LOCK_MAX_CONNS" // concurrent source locks (default 8)
 	EnvLockWait     = "DB_LOCK_WAIT"      // Go duration, max wait for a lock slot (default 30s)
+	// EnvLockCheckInterval is the Go duration between lock-session checks of a
+	// running import (default 5s, allowed 10ms to 10m).
+	EnvLockCheckInterval = "DB_LOCK_CHECK_INTERVAL"
 )
 
 // ErrConfig marks an invalid pool/lock environment setting (a usage error, not
@@ -69,6 +82,13 @@ func OpenPool(ctx context.Context, url string, getenv func(string) string) (*pgx
 			return nil, opts, fmt.Errorf("%w: %s=%q: want a positive Go duration such as 30s", ErrConfig, EnvLockWait, v)
 		}
 		opts.LockWait = d
+	}
+	if v := getenv(EnvLockCheckInterval); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < MinLockCheckInterval || d > MaxLockCheckInterval {
+			return nil, opts, fmt.Errorf("%w: %s=%q: want a Go duration between %s and %s such as 5s", ErrConfig, EnvLockCheckInterval, v, MinLockCheckInterval, MaxLockCheckInterval)
+		}
+		opts.LockCheckInterval = d
 	}
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {

@@ -24,12 +24,21 @@ var ErrNotFound = errors.New("not found")
 // No run row is created in that case.
 var ErrLockCapacity = errors.New("no lock connection available")
 
+// ErrLockLost means the session holding a monitored source lock died or no
+// longer holds the lock (for example pg_terminate_backend, a database restart or
+// a broken network). It is the text of the error of a run stopped for that reason.
+var ErrLockLost = errors.New("lost source lock (session terminated)")
+
+// lockCheckTimeout bounds one monitor check so a hung connection is detected.
+const lockCheckTimeout = 10 * time.Second
+
 // Store is the Postgres-backed store for sources, runs, raw records and import errors.
 type Store struct {
 	pool      *pgxpool.Pool
 	lockCfg   *pgx.ConnConfig // connection settings of the dedicated lock connections
 	lockSlots chan struct{}   // bounds concurrent lock connections
 	lockWait  time.Duration
+	lockCheck time.Duration // interval of the lock monitor
 }
 
 // New returns a Store using pool with default lock options. The schema must
@@ -44,7 +53,16 @@ func NewWithOptions(pool *pgxpool.Pool, opts Options) *Store {
 	if opts.LockWait <= 0 {
 		opts.LockWait = DefaultLockWait
 	}
+	switch {
+	case opts.LockCheckInterval <= 0:
+		opts.LockCheckInterval = DefaultLockCheckInterval
+	case opts.LockCheckInterval < MinLockCheckInterval:
+		opts.LockCheckInterval = MinLockCheckInterval
+	case opts.LockCheckInterval > MaxLockCheckInterval:
+		opts.LockCheckInterval = MaxLockCheckInterval
+	}
 	return &Store{
+		lockCheck: opts.LockCheckInterval,
 		pool:      pool,
 		lockCfg:   pool.Config().ConnConfig.Copy(),
 		lockSlots: make(chan struct{}, opts.LockConns),
@@ -529,6 +547,22 @@ func (s *Store) ListRaw(ctx context.Context, sourceID, afterKey string, limit in
 // failed (database down, no lock slot, cancelled context) and says nothing about
 // who holds the lock. unlock is never nil and is a no-op unless ok.
 func (s *Store) TryAdvisoryLock(ctx context.Context, sourceID string) (unlock func(), ok bool, err error) {
+	return s.tryLock(ctx, sourceID, nil)
+}
+
+// TryAdvisoryLockMonitored is TryAdvisoryLock plus a monitor: a goroutine checks
+// every Options.LockCheckInterval (one cheap pg_locks lookup on the lock
+// connection itself) that the session is alive and still holds the lock. When it
+// does not, onLost is called once, from the monitor goroutine, with an error
+// wrapping ErrLockLost, and the monitor ends. onLost must not block; a run uses
+// it to cancel itself. unlock stops the monitor and waits for it (also when
+// called while a check is in flight) before releasing the lock, so no goroutine
+// outlives unlock and onLost is never called after unlock returned.
+func (s *Store) TryAdvisoryLockMonitored(ctx context.Context, sourceID string, onLost func(error)) (unlock func(), ok bool, err error) {
+	return s.tryLock(ctx, sourceID, onLost)
+}
+
+func (s *Store) tryLock(ctx context.Context, sourceID string, onLost func(error)) (unlock func(), ok bool, err error) {
 	noop := func() {}
 	if err := s.acquireLockSlot(ctx); err != nil {
 		return noop, false, fmt.Errorf("advisory lock for %q: %w", sourceID, err)
@@ -551,10 +585,21 @@ func (s *Store) TryAdvisoryLock(ctx context.Context, sourceID string) (unlock fu
 		<-s.lockSlots
 		return noop, false, nil
 	}
+	stopMon := func() {}
+	if onLost != nil {
+		mctx, mcancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			s.monitorLock(mctx, conn, sourceID, onLost)
+		}()
+		stopMon = func() { mcancel(); <-done }
+	}
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			defer func() { <-s.lockSlots }()
+			stopMon() // the monitor is the only other user of conn: join it first
 			bg, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			// Best effort explicit unlock; closing the session drops the lock anyway.
@@ -563,6 +608,40 @@ func (s *Store) TryAdvisoryLock(ctx context.Context, sourceID string) (unlock fu
 			_ = conn.Close(bg)
 		})
 	}, true, nil
+}
+
+// monitorLock runs until ctx is cancelled (unlock) or the lock is lost. A check
+// that fails because ctx was cancelled is not a loss.
+func (s *Store) monitorLock(ctx context.Context, conn *pgx.Conn, sourceID string, onLost func(error)) {
+	t := time.NewTicker(s.lockCheck)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		cctx, cancel := context.WithTimeout(ctx, lockCheckTimeout)
+		var held bool
+		err := conn.QueryRow(cctx, `
+SELECT EXISTS (SELECT 1 FROM pg_locks
+  WHERE locktype = 'advisory' AND granted AND pid = pg_backend_pid()
+    AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+    AND ((classid::bigint << 32) | objid::bigint) = hashtextextended('data-importer:source:' || $1::text, 0))`,
+			sourceID).Scan(&held)
+		cancel()
+		if ctx.Err() != nil {
+			return
+		}
+		switch {
+		case err != nil:
+			onLost(fmt.Errorf("%w: %v", ErrLockLost, err))
+			return
+		case !held:
+			onLost(fmt.Errorf("%w: session no longer holds the lock", ErrLockLost))
+			return
+		}
+	}
 }
 
 func closeConn(c *pgx.Conn) {

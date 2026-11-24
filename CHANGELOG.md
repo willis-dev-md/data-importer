@@ -3,6 +3,7 @@
 All notable user-visible changes. Maintained by the `documentor` role. Newest first.
 
 ## Unreleased
+- A run whose source lock session is lost (killed session, database restart, dropped network) now stops as `failed` with `lost source lock (session terminated)` instead of continuing unprotected; the lock is checked every `DB_LOCK_CHECK_INTERVAL` (default `5s`, see [docs/operations.md](docs/operations.md#lost-source-lock)).
 - ASHE Table 20.7a annual gross pay imports from the real ONS zips as two standalone sources, `ashe-t20-2026p` (provisional) and `ashe-t20-2025r` (revised); suppression markers are kept as `quality_flag`, and source groups are not implemented yet (see [docs/sources/ons-ashe-table20.md](docs/sources/ons-ashe-table20.md)).
 - UK House Price Index sources (`uk-hpi-average-prices`, `uk-hpi-property-type`) import and serve from configuration only; `kind: csv` sources accept `table:` and `context:` and run the same row pipeline as xlsx (see [docs/sources/uk-hpi.md](docs/sources/uk-hpi.md)).
 - Standalone csv and xlsx sources can read a zip member (`archive: {type: zip, member: <regex>}`) and monthly URLs (`resolve: {kind: month}`); the chosen URL is recorded on the run and shown by `importer run`; https-to-http redirects are refused (see [docs/mapping-spec.md](docs/mapping-spec.md#archives)).

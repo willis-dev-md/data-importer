@@ -351,7 +351,7 @@ type failingStore struct{ importer.Store }
 
 var errLock = errors.New("database is down")
 
-func (failingStore) TryAdvisoryLock(context.Context, string) (func(), bool, error) {
+func (failingStore) TryAdvisoryLockMonitored(context.Context, string, func(error)) (func(), bool, error) {
 	return func() {}, false, errLock
 }
 

@@ -58,7 +58,9 @@ type Store interface {
 	FinishRun(ctx context.Context, runID int64, status string, counts store.RunCounts, shape, sourceMeta json.RawMessage, errText string) error
 	UpsertRawUnique(ctx context.Context, runID int64, sourceID string, recs []record.Record) (store.Counts, []store.Dup, error)
 	RecordErrors(ctx context.Context, runID int64, errs []store.RowError) error
-	TryAdvisoryLock(ctx context.Context, sourceID string) (unlock func(), ok bool, err error)
+	// TryAdvisoryLockMonitored takes the source lock and calls onLost (once, from
+	// another goroutine) if the lock session dies; unlock joins that goroutine.
+	TryAdvisoryLockMonitored(ctx context.Context, sourceID string, onLost func(error)) (unlock func(), ok bool, err error)
 	// File retention (used only when Deps.Files is set).
 	RecordFile(ctx context.Context, f store.File) (id int64, created bool, err error)
 	SetRunFile(ctx context.Context, runID, fileID int64) error
@@ -156,14 +158,22 @@ func Run(ctx context.Context, deps Deps, sourceID string, opts Options) (RunResu
 		return RunResult{}, errors.New("importer: no store")
 	}
 	if !opts.DryRun {
-		unlock, ok, err := deps.Store.TryAdvisoryLock(ctx, sourceID)
+		// If the lock session dies the run is cancelled with cause store.ErrLockLost
+		// and finishes failed. unlock (deferred, so it also runs on panic) joins the
+		// monitor goroutine; cancel is deferred after it and so runs first.
+		lctx, cancel := context.WithCancelCause(ctx)
+		unlock, ok, err := deps.Store.TryAdvisoryLockMonitored(lctx, sourceID, func(e error) { cancel(e) })
 		if err != nil {
+			cancel(nil)
 			return RunResult{}, fmt.Errorf("import %q: %w", sourceID, err)
 		}
 		if !ok {
+			cancel(nil)
 			return RunResult{}, fmt.Errorf("import %q: %w", sourceID, ErrAlreadyRunning)
 		}
 		defer unlock()
+		defer cancel(nil)
+		ctx = lctx
 	}
 
 	src, err := deps.Store.GetSource(ctx, sourceID)
@@ -236,6 +246,15 @@ func Run(ctx context.Context, deps Deps, sourceID string, opts Options) (RunResu
 	if runErr == nil && !unchanged {
 		runErr = execute(ctx, deps.Store, open, cfg, sourceID, opts, &res)
 	}
+	// A lost source lock outranks every other outcome: another run of the source
+	// may already be writing, so this run cannot be called succeeded or aborted.
+	if cause := context.Cause(ctx); errors.Is(cause, store.ErrLockLost) {
+		if runErr == nil {
+			runErr = cause
+		} else if !errors.Is(runErr, store.ErrLockLost) {
+			runErr = fmt.Errorf("%w (%v)", cause, runErr)
+		}
+	}
 	switch {
 	case runErr == nil && unchanged:
 		res.Status = StatusUnchangedFile
@@ -245,7 +264,7 @@ func Run(ctx context.Context, deps Deps, sourceID string, opts Options) (RunResu
 		res.Status = StatusAborted
 	default:
 		res.Status = StatusFailed
-		if ctx.Err() != nil && !strings.HasPrefix(runErr.Error(), "cancelled") {
+		if ctx.Err() != nil && !errors.Is(runErr, store.ErrLockLost) && !strings.HasPrefix(runErr.Error(), "cancelled") {
 			runErr = fmt.Errorf("cancelled: %w", runErr)
 		}
 	}
