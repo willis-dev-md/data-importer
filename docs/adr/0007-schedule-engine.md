@@ -23,6 +23,6 @@ runs is task 022.
 
 ## Consequences
 - `sources apply` writes nothing when any schedule field is invalid, and lists every error it found.
-- Until task 022 lands, `importer serve` does not run scheduled sources. Run them with `importer run --source <id>`.
+- Task 022 added the scheduler loop: `importer serve` runs due scheduled sources ([ADR-0008](0008-scheduler-loop.md)). Before it, `importer run --source <id>` was the only way to run them.
 - Known gap: when `cron` is present, `every` errors are not listed (the `cron` check returns first). The task asked for all errors together. Not fixed in task 021.
 - The schedule maths was checked against Python `zoneinfo` on 51 cases with 0 mismatches (validator report, task 021).

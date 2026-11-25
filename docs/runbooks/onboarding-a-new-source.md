@@ -36,7 +36,7 @@ schedule: { every: monthly, day_of_month: 20, at: "10:00", timezone: Europe/Lond
 | `jitter` | Go duration from `0` to `1h` (for example `5m`); default `0s` |
 | `enabled` | `false` pauses the source and clears `next_run_at` |
 
-`cron:` is not supported yet. **A schedule is only stored for now:** the loop that starts scheduled runs is task 022 and NOT built. `importer run` still works by hand (UNVERIFIED in task 021: not run).
+`cron:` is not supported yet. `importer serve` starts scheduled runs (task 022): see [scheduled-imports.md](scheduled-imports.md) for `schedule list`, pausing with `enabled: false`, and the scheduler settings. `importer run` still works by hand.
 
 1. Store the schedule: `bin/importer sources apply --dir <dir>`  *(expected for a valid schedule, real on a throwaway database: `uk-hpi-average-prices: source created, mapping v1 created, next run 2026-12-20T10:00:00Z`, exit 0. Re-applying the same file: `source unchanged, mapping v1 unchanged, next run ...`. With `enabled: false`: `source updated, mapping v1 unchanged, schedule cleared (manual only or disabled)`. A source with no schedule prints no `next run`: UNVERIFIED, not run.)*
 2. Check the stored state: `psql "$DATABASE_URL" -Atc 'select id, enabled, next_run_at, schedule from sources'`  *(real after `enabled: false`: `uk-hpi-average-prices|f||{"at": "10:00", "every": "monthly", "jitter": "0s", "timezone": "Europe/London", "on_missed": "run_once", "day_of_month": 20}` (empty `next_run_at`; the schedule is kept))*

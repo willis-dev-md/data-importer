@@ -22,7 +22,7 @@ CREATE TABLE sources (
   active_mapping_version int,
   schedule      jsonb,                       -- null = manual only; normalised spec, see mapping-spec#schedule
   enabled       boolean NOT NULL DEFAULT true,
-  next_run_at   timestamptz,                 -- set by sources apply; advanced by the scheduler (task 022, not built yet)
+  next_run_at   timestamptz,                 -- set by sources apply; advanced by the scheduler claim (task 022)
   last_scheduled_at timestamptz,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
@@ -167,3 +167,10 @@ Decisions (task 018):
 - **Tests:** `TestRunStopsWhenLockSessionIsTerminated` (kill mid-run gives `failed`), `TestSecondRunDuringDetectionWindow`, `TestHealthyRunNoFalseAlarmAndSweepLeavesLiveRun` (no false alarm, sweeps never touch the live run, 400 of 400 rows inserted).
 - **Cost (validator measurement, not re-run here):** a 200k-row run took 9.76 s, against 9.52 to 9.86 s in the same comparison. The monitor adds one query per interval on the lock connection only.
 - **Evidence (validator, not re-run here):** with the real binary, `pg_terminate_backend` on the lock session mid-run left 160000 rows kept with `first_run_id=5`, and the rerun succeeded.
+
+## Decisions (task 022)
+- **Claim** (`store.ClaimDue`): one short transaction selects the due rows `FOR UPDATE SKIP LOCKED`, ordered by `next_run_at, id`. `next_run_at` moves to the slot after the scheduled one and `last_scheduled_at` is set to the slot. The import starts after the commit, so no lock is held for its length. The Plan baseline is `next_run_at - 1ns` (the first unhandled slot), so after a schedule change the old schedule's slots are never counted as missed.
+- **Run rows:** a scheduled run has `trigger = 'schedule'` and `scheduled_for` = the slot it satisfies. A run that fails before it starts (lock capacity or wait, missing token variable, unreadable source) gets a `failed` row with the same trigger and slot and the error text (`store.RecordFailedRun`). An overlap skip (the source lock is held) writes no row; it is logged only.
+- **No schema change:** task 022 adds no migration; the schema stays at version 3.
+- **Sweep:** each scheduler poll runs `SweepAbandonedRuns` under the rule of task 009 and task 020 (see above), so a killed replica's row is closed by the next poll of any replica.
+- **Evidence (validator, not re-run here):** three replicas and one due source gave exactly one run per slot; `kill -9` of the runner left a `running` row that the next poll closed as `failed` / `abandoned (process died)`, and the next slot ran once.

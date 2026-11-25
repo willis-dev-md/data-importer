@@ -64,18 +64,26 @@ health are tracked per dataset while configuration is written once. See [source-
 ### Scheduler
 Each source declares its own `schedule` (see [mapping-spec](mapping-spec.md#schedule)). The scheduler runs inside
 `importer serve` and:
-1. Computes `sources.next_run_at` from the schedule and timezone (built in task 021, `schedule.Next`); polls for due sources every 30s (task 022, not built yet).
-2. Applies the jitter offset (`schedule.Offset`: deterministic FNV-1a of the source id, in [0, jitter); computed in task 021, applied in task 022) and a global concurrency limit (`IMPORT_CONCURRENCY`) and a shared per-host rate limit.
-3. Claims a due source with `SELECT ... FOR UPDATE SKIP LOCKED` and a per-source advisory lock, so several
-   server replicas never run the same source twice and no leader election is needed.
-4. Starts a normal import run (`trigger = 'schedule'`), then computes the next `next_run_at` from the **scheduled**
-   time, not the finish time, so cadence does not drift.
+1. Computes `sources.next_run_at` from the schedule and timezone (`schedule.Next`, task 021); polls for due sources every `SCHEDULER_POLL_INTERVAL` (default 30s, task 022).
+2. Applies the jitter offset (`schedule.Offset`: deterministic FNV-1a of the source id, in [0, jitter)) to the start time only, and a global concurrency limit (`IMPORT_CONCURRENCY`) on scheduled runs. Per-host rate limiting is **not implemented**.
+3. Claims due sources in the database: `SELECT ... FOR UPDATE SKIP LOCKED` in one short transaction, so several server replicas never start the same slot twice and no leader election is needed. The claim holds no lock during the import. A per-source advisory lock still stops a second run of a source that is running (overlap).
+4. The claim computes the next `next_run_at` from the **scheduled** time, not the finish time, so cadence does not drift; then the import starts with `trigger = 'schedule'` and `scheduled_for` = the slot.
 5. Applies `on_missed` after downtime: `run_once` (default: one catch-up run) or `skip`.
 6. Overlap policy is always skip: a source already running is not started again.
 Manual runs (`importer run`, `StartImport`) use the same path with `trigger = 'manual'`. Changing a schedule
 recomputes `next_run_at` immediately (`sources apply`, task 021). A source can be paused with `enabled: false`, which clears `next_run_at`.
 
 **Decision (task 021): no retry.** A failed run is not retried; the next scheduled slot is the retry. `cron` is deferred. See [ADR-0007](adr/0007-schedule-engine.md).
+
+**As built (task 022)**, in `internal/scheduler`, started by `importer serve` ([operations](operations.md#scheduler); decisions in [ADR-0008](adr/0008-scheduler-loop.md)):
+- **Poll:** `Run` polls once at start and then every `SCHEDULER_POLL_INTERVAL`. Each poll first sweeps abandoned runs (`store.SweepAbandonedRuns`), then claims due sources, up to the free slots of `IMPORT_CONCURRENCY`.
+- **Claim** (`store.ClaimDue`): one short transaction selects `enabled AND schedule IS NOT NULL AND next_run_at <= now`, ordered by `next_run_at, id`, `FOR UPDATE SKIP LOCKED`. For each row `schedule.Plan(spec, next_run_at - 1ns, now - offset)` gives the slot; `next_run_at` moves to the slot after it and `last_scheduled_at` is set to the slot. The transaction commits, then the import starts. Slots that are only passed over (`skip`) are advanced and use no run slot.
+- **Jitter:** a source is claimed once `next_run_at + offset <= now`. `Plan` gets the raw slots, so an offset above `SkipGrace` cannot make a slot count as missed. The offset moves the start only, never the slot.
+- **Missed slots:** `run_once` runs once for the latest missed slot (`scheduled_for` = that slot); `skip` runs none ([ADR-0007](adr/0007-schedule-engine.md)).
+- **Overlap:** if the source lock is held, the slot is skipped and logged at WARN. No run row is written.
+- **Failures:** a failed or aborted scheduled run is not retried. A run that fails before it starts (lock capacity or wait, missing token variable, unreadable source) leaves a `failed` row with `trigger = 'schedule'`, `scheduled_for` = the slot and the error text, so the lost slot is visible. A panic in a run is recovered and logged; the other sources continue.
+- **Shutdown:** SIGTERM stops claiming. In-flight runs get the shutdown grace (10 s, the serve `ShutdownTimeout`), then their context is cancelled and they finish `failed` with `cancelled: ...`, as a manual run does. `Run` returns after every goroutine has been joined.
+- **Not implemented:** cron expressions, retries, per-host rate limiting, source groups (M7b), a metrics endpoint (separate task). `http_json` sources cannot run yet (no adapter, same as `run`).
 
 ## 5a. Import and read flows
 
@@ -210,7 +218,8 @@ Read-time mapping and JSONB filtering are fine for moderate volume. Escape hatch
   [data model, task 019](data-model.md#decisions-task-019).
 - **Lost source lock (task 020).** A real run's source lock comes from `store.TryAdvisoryLockMonitored`, which runs one goroutine that every `DB_LOCK_CHECK_INTERVAL` (default 5 s, range 10 ms to 10 m) makes one read-only `pg_locks` lookup on the run's own lock connection: is the session alive and does it still hold the key? The check never releases the lock and times out after 10 s; a failed or timed-out check counts as lost. On loss the run is cancelled and finishes `failed` with `lost source lock (session terminated): ...`, which outranks abort or success at the last moment. Batches already committed stay tagged with the run id. The monitor is joined before the lock is released, on every exit (success, failure, cancel, panic). Settings: [operations](operations.md#lost-source-lock); decisions: [data model, task 020](data-model.md#decisions-task-020).
 - **Detection window (honest):** between the loss and its detection (at most one interval plus the check round trip) the run still writes, and another run of the same source can start. After detection the first run ends `failed` within one batch; a run started after that is legitimate.
-- **Sweep rule:** `SweepAbandonedRuns` fails a `running` row only when its source lock is not held, so a live run, including one being re-checked, is never swept.
+- **Sweep rule:** `SweepAbandonedRuns` fails a `running` row only when its source lock is not held, so a live run, including one being re-checked, is never swept. Since task 022 the scheduler also sweeps at the start of every poll, so a killed replica's row is closed by the next poll of any replica.
+- **Unlock waits for the monitor (task 022):** unlock waits for a lock check in flight (normally milliseconds, at most 10 s on a hung connection) and does not cancel it. An earlier cancel could break the connection and leave the lock held. A SIGTERM during a hung check can therefore delay exit up to 10 s past the shutdown grace.
 - **Evidence (validator, not re-run here):** with the real binary, `pg_terminate_backend` on the lock session mid-run left 160000 rows kept with `first_run_id=5`, and the rerun succeeded.
 
 ## 10. Security

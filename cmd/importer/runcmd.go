@@ -28,7 +28,12 @@ const defaultFileStoreDir = "data/files"
 // defaultFileStoreDir). A directory that cannot be created or written is a usage
 // error, reported before any database work.
 func openFileStore(cmd string, stderr io.Writer) (store.FileStore, int) {
-	dir := getenv("FILE_STORE_DIR")
+	return openFileStoreEnv(cmd, getenv, stderr)
+}
+
+// openFileStoreEnv is openFileStore reading FILE_STORE_DIR from env.
+func openFileStoreEnv(cmd string, env func(string) string, stderr io.Writer) (store.FileStore, int) {
+	dir := env("FILE_STORE_DIR")
 	if dir == "" {
 		dir = defaultFileStoreDir
 	}

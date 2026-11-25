@@ -100,14 +100,15 @@ type RunCounts struct {
 
 // Run is a row of the import_runs table.
 type Run struct {
-	ID         int64
-	SourceID   string
-	Status     string
-	Trigger    string
-	SourceMeta json.RawMessage
-	Shape      json.RawMessage
-	StartedAt  time.Time
-	FinishedAt *time.Time
+	ID           int64
+	SourceID     string
+	Status       string
+	Trigger      string
+	ScheduledFor *time.Time // the schedule slot of a scheduled run
+	SourceMeta   json.RawMessage
+	Shape        json.RawMessage
+	StartedAt    time.Time
+	FinishedAt   *time.Time
 	RunCounts
 	Error  *string
 	FileID *int64 // source_files.id parsed (or found unchanged) by this run; nil if none
@@ -170,15 +171,45 @@ func (s *Store) GetSource(ctx context.Context, id string) (Source, error) {
 // CreateRun starts a run in status 'running' and returns its id. trigger is
 // 'manual' or 'schedule'; an empty trigger means 'manual'.
 func (s *Store) CreateRun(ctx context.Context, sourceID, trigger string) (int64, error) {
+	return s.CreateRunFor(ctx, sourceID, trigger, time.Time{})
+}
+
+// CreateRunFor is CreateRun that also records the schedule slot the run is for
+// (import_runs.scheduled_for; the zero time means none, as for a manual run).
+func (s *Store) CreateRunFor(ctx context.Context, sourceID, trigger string, scheduledFor time.Time) (int64, error) {
 	if trigger == "" {
 		trigger = "manual"
 	}
+	var sf *time.Time
+	if !scheduledFor.IsZero() {
+		sf = &scheduledFor
+	}
 	var id int64
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO import_runs (source_id, status, trigger) VALUES ($1, 'running', $2) RETURNING id`,
-		sourceID, trigger).Scan(&id)
+		`INSERT INTO import_runs (source_id, status, trigger, scheduled_for) VALUES ($1, 'running', $2, $3) RETURNING id`,
+		sourceID, trigger, sf).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("create run for source %q: %w", sourceID, err)
+	}
+	return id, nil
+}
+
+// RecordFailedRun writes a run that never started (no lock, no secret, no source) as one finished row with
+// status failed, so a lost scheduled slot is visible in import_runs. scheduledFor may be the zero time.
+func (s *Store) RecordFailedRun(ctx context.Context, sourceID, trigger string, scheduledFor time.Time, errText string) (int64, error) {
+	if trigger == "" {
+		trigger = "manual"
+	}
+	var sf *time.Time
+	if !scheduledFor.IsZero() {
+		sf = &scheduledFor
+	}
+	var id int64
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO import_runs (source_id, status, trigger, scheduled_for, finished_at, error) VALUES ($1, 'failed', $2, $3, now(), $4) RETURNING id`,
+		sourceID, trigger, sf, errText).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("record failed run for source %q: %w", sourceID, err)
 	}
 	return id, nil
 }
@@ -220,10 +251,10 @@ func (s *Store) GetRun(ctx context.Context, runID int64) (Run, error) {
 	var r Run
 	var shape, meta []byte
 	err := s.pool.QueryRow(ctx, `
-SELECT id, source_id, status, trigger, source_meta, shape, started_at, finished_at,
+SELECT id, source_id, status, trigger, scheduled_for, source_meta, shape, started_at, finished_at,
        inserted, updated, unchanged, failed, tombstoned, error, file_id
 FROM import_runs WHERE id = $1`, runID).Scan(
-		&r.ID, &r.SourceID, &r.Status, &r.Trigger, &meta, &shape, &r.StartedAt, &r.FinishedAt,
+		&r.ID, &r.SourceID, &r.Status, &r.Trigger, &r.ScheduledFor, &meta, &shape, &r.StartedAt, &r.FinishedAt,
 		&r.Inserted, &r.Updated, &r.Unchanged, &r.Failed, &r.Tombstoned, &r.Error, &r.FileID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Run{}, fmt.Errorf("run %d: %w", runID, ErrNotFound)
@@ -621,7 +652,11 @@ func (s *Store) monitorLock(ctx context.Context, conn *pgx.Conn, sourceID string
 			return
 		case <-t.C:
 		}
-		cctx, cancel := context.WithTimeout(ctx, lockCheckTimeout)
+		// The check is NOT cancelled by unlock: a query cancelled mid-flight breaks the connection, so the
+		// explicit pg_advisory_unlock would fail and the lock would stay held on the server until it noticed the
+		// closed socket (a run started right after unlock then saw "already running"). unlock waits for the
+		// check instead; it is bounded by lockCheckTimeout.
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), lockCheckTimeout)
 		var held bool
 		err := conn.QueryRow(cctx, `
 SELECT EXISTS (SELECT 1 FROM pg_locks

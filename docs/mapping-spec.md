@@ -24,7 +24,7 @@ schedule:
 enabled: true             # false pauses the source and clears next_run_at
 ```
 
-Rules (implemented in task 021; the scheduler loop that starts due runs is task 022, not built yet):
+Rules (validated in task 021; the scheduler that starts due runs is task 022, see [operations](operations.md#scheduler)):
 - `every` is required and must be `daily`, `weekly` or `monthly`. `cron:` is rejected: `schedule.cron: not supported yet (use every: daily, weekly or monthly)`. Cron expressions are out of scope.
 - Every error names its field as `schedule.<field>: ...`; `sources apply` reports them and writes nothing.
 - `day_of_month` is 1-28 or `last`, required for monthly and rejected otherwise. `day_of_week` is required for weekly and rejected otherwise.

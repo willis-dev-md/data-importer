@@ -4,7 +4,7 @@ A configurable import pipeline that pulls data from **CSV files**, **Excel workb
 differs per setup, lands it in **Postgres** exactly as received, and serves it through a **gRPC API**
 that applies a per-source mapping to present a stable, typed shape.
 
-> Status: **early**. `migrate`, `mapping validate`, `sources apply` and `run` (CSV sources) work; `serve` runs the gRPC API (`GetRecord`, `ListRecords` with mapping on read). Start with [docs/design.md](docs/design.md).
+> Status: **early**. `migrate`, `mapping validate`, `sources apply` and `run` (CSV sources) work; `serve` runs the gRPC API (`GetRecord`, `ListRecords` with mapping on read) and starts due scheduled sources. Start with [docs/design.md](docs/design.md).
 
 ## Quick start
 
@@ -50,7 +50,7 @@ scripts/demo.sh
     ==> migrate up
     version 3
     ==> sources apply
-    ons-l55o: source created, mapping v1 created
+    ons-l55o: source created, mapping v1 created, next run 2026-12-18T09:30:00Z
     ==> run (import the fixture)
     source=ons-l55o status=succeeded inserted=642 updated=0 unchanged=0 failed=0 run=1 duration=61ms
     ==> serve (plaintext gRPC on a free local port)
@@ -143,7 +143,7 @@ go run ./scripts/demo-client -addr "$ADDR" -size 3 | head -n 4
 Real output of that script (the `head -n 4` cuts the JSON response to its first four lines; the address and timestamps change per run):
 
     version 3
-    ons-l55o: source created, mapping v1 created
+    ons-l55o: source created, mapping v1 created, next run 2026-12-18T09:30:00Z
     source=ons-l55o status=succeeded inserted=642 updated=0 unchanged=0 failed=0 run=1 duration=50ms
     serving on 127.0.0.1:45481
     time=2026-11-21T11:17:21.536Z level=WARN msg="TLS_CERT_FILE and TLS_KEY_FILE are not set: serving plaintext gRPC" addr=127.0.0.1:45481
@@ -201,11 +201,20 @@ rm -r "$D"
 ```
 
     version 3
-    ons-l55o: source created, mapping v1 created
+    ons-l55o: source created, mapping v1 created, next run 2026-12-18T09:30:00Z
     source=ons-l55o status=succeeded inserted=0 updated=0 unchanged=0 failed=0 run=dry-run duration=11ms
     source=ons-l55o status=succeeded inserted=642 updated=0 unchanged=0 failed=0 run=1 duration=59ms
 
 Exit codes of `run`: 0 ok, 1 failed or aborted, 2 usage error, 3 already running.
+
+Sources with a `schedule:` run by themselves while `importer serve` runs (`SCHEDULER_ENABLED`, default `true`).
+`importer schedule list` shows each source's next run. Real output for the ONS example on a throwaway database (the
+time depends on the date):
+
+    ID        ENABLED  SCHEDULE                    TIMEZONE       NEXT_RUN_AT           LAST_SCHEDULED_AT  LAST_RUN
+    ons-l55o  true     monthly on day 18 at 09:30  Europe/London  2026-12-18T09:30:00Z  -                  -
+
+Details: [docs/operations.md](docs/operations.md#scheduler).
 
 ## Planned stack
 

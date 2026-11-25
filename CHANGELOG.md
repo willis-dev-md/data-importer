@@ -4,7 +4,12 @@ All notable user-visible changes. Maintained by the `documentor` role. Newest fi
 
 ## Unreleased
 - `importer sources apply` validates each source's `schedule:` (`every` daily, weekly or monthly; `at`; `day_of_week`; `day_of_month` 1-28 or `last`; IANA `timezone`, default `Europe/London`; `on_missed`; `jitter` up to 1h) and lists every error by field, writing nothing; `cron:` is rejected as not supported yet (see [docs/mapping-spec.md](docs/mapping-spec.md#schedule)).
-- `sources apply` stores the schedule and sets `next_run_at`; sources with no schedule or with `enabled: false` have none. The scheduler loop that starts due runs is not built yet (task 022), so `importer serve` does not run scheduled sources.
+- `importer serve` starts due scheduled sources by itself (`SCHEDULER_ENABLED`, default `true`; `SCHEDULER_POLL_INTERVAL`, default `30s`; `IMPORT_CONCURRENCY`, default `2`); each slot runs once across any number of replicas (see [docs/operations.md](docs/operations.md#scheduler)).
+- A failed scheduled run is not retried (the next slot is the retry); after downtime `on_missed: run_once` runs once for the latest missed slot and `skip` runs none.
+- `importer schedule list` prints each source's schedule, timezone, next run, last scheduled slot and last run status; it works without `serve`.
+- Scheduled runs are recorded with `trigger=schedule` and `scheduled_for`; a scheduled run that fails before it starts (lock capacity, missing token variable) leaves a `failed` row.
+- Not in this release: cron expressions, retries of failed runs, per-host rate limiting (see [docs/roadmap.md](docs/roadmap.md#hardening-backlog)).
+- `sources apply` stores the schedule and sets `next_run_at`; sources with no schedule or with `enabled: false` have none.
 - Migration `0003_schedule` adds `sources.schedule`, `enabled`, `next_run_at`, `last_scheduled_at` and the `sources_due` index; the schema is version 3 (`importer migrate up` prints `version 3`).
 - A run whose source lock session is lost (killed session, database restart, dropped network) now stops as `failed` with `lost source lock (session terminated)` instead of continuing unprotected; the lock is checked every `DB_LOCK_CHECK_INTERVAL` (default `5s`, see [docs/operations.md](docs/operations.md#lost-source-lock)).
 - ASHE Table 20.7a annual gross pay imports from the real ONS zips as two standalone sources, `ashe-t20-2026p` (provisional) and `ashe-t20-2025r` (revised); suppression markers are kept as `quality_flag`, and source groups are not implemented yet (see [docs/sources/ons-ashe-table20.md](docs/sources/ons-ashe-table20.md)).

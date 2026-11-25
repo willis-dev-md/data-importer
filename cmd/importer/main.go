@@ -20,9 +20,10 @@ const usage = `usage: importer <command> [args]
 
 commands:
   migrate   apply database migrations: migrate up|down|version
-  serve     run the gRPC server (GRPC_ADDR, TLS_CERT_FILE, TLS_KEY_FILE)
+  serve     run the gRPC server and the scheduler (GRPC_ADDR, TLS_CERT_FILE, TLS_KEY_FILE, SCHEDULER_*)
   run       run one import: run --source <id> [--dry-run]
   reparse   parse a stored file again: reparse --source <id> [--run <id>]
+  schedule  schedule list: each source's schedule, next run and last run
   sources   sources apply [--dir <dir>] [--schema canonical-schema.yaml]
   mapping   mapping validate [--schema canonical-schema.yaml] <file>
   version   print the version
@@ -48,6 +49,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runMapping(args[1:], stdout, stderr)
 	case "sources":
 		return runSources(args[1:], stdout, stderr)
+	case "schedule":
+		return runSchedule(args[1:], stdout, stderr)
 	case "run":
 		return runImport(args[1:], stdout, stderr)
 	case "reparse":

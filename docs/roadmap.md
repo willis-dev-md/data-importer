@@ -13,7 +13,7 @@ Status as of task 012. Milestones M0 to M5 are done; the task numbers are in the
 | M4 | Mapping engine | Parser, validator, transforms, `period` type, `@meta` refs, error model, dry-run | done: tasks 006 (canonical v2, parser, validator), 007 (evaluator) |
 | M5 | gRPC read API | `DataService` with filters, keyset paging, mapping on read | done: tasks 010 (skeleton), 011 (DataService) |
 | M6 | HTTP JSON adapter | Auth, pagination types, retries, rate limit | remaining (no task yet) |
-| M7 | Scheduler + services | Schedule parsing/validation, `next_run_at`, SKIP LOCKED claiming, catch-up policy; `SourceService`, `ImportService`, mapping versioning | in progress: schedule parsing, validation, `next_run_at` and migration 0003 (task 021); polling loop, claiming and `schedule list` (task 022) |
+| M7 | Scheduler + services | Schedule parsing/validation, `next_run_at`, SKIP LOCKED claiming, catch-up policy; `SourceService`, `ImportService`, mapping versioning | in progress: scheduler done (schedule parsing, validation, `next_run_at`, migration 0003 in task 021; polling loop, claiming, catch-up and `schedule list` in task 022); remaining: `SourceService`, `ImportService`, mapping versioning |
 | M7b | Source groups | Templates, member expansion, shared mappings, plan/apply, rate limit, jitter, concurrency pool, group health | remaining (no task yet) |
 | M8 | Hardening | Auth interceptor, TLS, metrics, rollback, tombstones | remaining (no task yet) |
 | M9 | Performance | Indexes, optional materialized views, load test | remaining (no task yet) |
@@ -26,7 +26,7 @@ Remaining work, in order of the table:
 - M2b: XLSX adapter and row pipeline (task 013).
 - M2c: fetched-file retention is still open (backlog). Zip archives and location resolution are done (task 015, see [mapping-spec](mapping-spec.md#archives)).
 - M6: HTTP JSON adapter.
-- M7: scheduler and the source and import services.
+- M7: `SourceService` and `ImportService` with mapping versioning (the scheduler is done, task 022).
 - M7b: source groups.
 - M8: hardening, including the backlog below.
 - M9: performance.
@@ -51,6 +51,13 @@ Known limitations of the task 009 CLI, left as future work:
 - `importer run` prints `failed=N`, which now includes duplicate natural keys, but not the sample reasons in `RunResult.DuplicateSamples` (task 018 follow-up: print them after the summary line in `cmd/importer/runcmd.go`).
 - No retention or cleanup for fetched files (`source_files`, the `FILE_STORE_DIR` directory): every fetched file is kept. Task 014 left it out ([data model](data-model.md#decisions-task-014)).
 - `FILE_STORE_DIR` defaults to `data/files` relative to the working directory: a run from another directory silently starts an empty store, and a later `reparse` fails with `stored file is missing`. Use an absolute path, or make the default absolute.
+- Scheduler (task 022): per-host rate limiting is not implemented (the design named it; API sources have no adapter yet).
+- Scheduler: `cron` expressions are not supported; only `daily`, `weekly` and `monthly` ([ADR-0007](adr/0007-schedule-engine.md)).
+- Scheduler: `http_json` sources cannot be run by the scheduler (no adapter yet, as with `run`).
+- Scheduler: the sweep wiring in `importer serve` has no serve-level test; the sweep is covered by a scheduler test only (follow-up).
+- Scheduler: SIGTERM during a hung lock check can delay exit up to 10 s past the shutdown grace (`unlock` waits for the check; [design](design.md#9-failure-handling)).
+- Scheduler: `FILE_STORE_DIR` is a local directory; replicas on different hosts do not share fetched files (not tested).
+- Scheduler: the metrics endpoint is a separate task (M8).
 
 Zip archives and location resolution (task 015), not verified (`UNVERIFIED`):
 - A 256 MB member at the 100:1 ratio limit is not tested (the limits are tested with smaller and bomb cases).
@@ -78,5 +85,6 @@ XLSX adapter (task 013), known limits that the adapter does not detect:
 - **Validated:** task 016 (UK HPI average prices and property type import and serve from the fixtures; CSV sources accept `table:` and `context:` and run the same pipeline as xlsx). Docs were updated by the documentor ([UK HPI](sources/uk-hpi.md), [mapping-spec](mapping-spec.md)); the real-file checks and the unverified items are listed there.
 - **Validated:** task 017 (ASHE Table 20.7a imports from the real ONS zips as standalone sources `ashe-t20-2026p` and `ashe-t20-2025r`; group templating is not implemented). Docs were updated by the documentor ([ASHE Table 20](sources/ons-ashe-table20.md), [source groups](source-groups.md) marked not implemented).
 - **Validated:** task 020 (a run whose lock session is lost stops as `failed` with `lost source lock (session terminated)`; `DB_LOCK_CHECK_INTERVAL`). Docs were updated by the documentor ([design](design.md#9-failure-handling), [operations](operations.md#lost-source-lock), [data model](data-model.md#decisions-task-020)).
+- **Validated:** task 022 (`importer serve` runs due scheduled sources, one run per slot across replicas, no retry, catch-up policy, `importer schedule list`, `SCHEDULER_*` and `IMPORT_CONCURRENCY`). Docs were updated by the documentor ([design](design.md#scheduler), [operations](operations.md#scheduler), [data model](data-model.md#decisions-task-022), [ADR-0008](adr/0008-scheduler-loop.md)).
 - **Next task:** not chosen yet.
 - **Housekeeping for you:** fill `factory/metrics/prices.json` (cost shows n/a); decide whether to keep the docs-role budget (documentor 20, runbook-refiner 25 tool calls); the Hardening backlog above lists known limits.

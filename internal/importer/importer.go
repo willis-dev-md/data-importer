@@ -54,7 +54,7 @@ var (
 // Store is the part of *store.Store that Run needs.
 type Store interface {
 	GetSource(ctx context.Context, id string) (store.Source, error)
-	CreateRun(ctx context.Context, sourceID, trigger string) (int64, error)
+	CreateRunFor(ctx context.Context, sourceID, trigger string, scheduledFor time.Time) (int64, error)
 	FinishRun(ctx context.Context, runID int64, status string, counts store.RunCounts, shape, sourceMeta json.RawMessage, errText string) error
 	UpsertRawUnique(ctx context.Context, runID int64, sourceID string, recs []record.Record) (store.Counts, []store.Dup, error)
 	RecordErrors(ctx context.Context, runID int64, errs []store.RowError) error
@@ -82,9 +82,11 @@ type Deps struct {
 
 // Options tune one run.
 type Options struct {
-	Trigger   string // manual (default) or schedule
-	DryRun    bool   // parse and count only; nothing is written and no lock is taken
-	BatchSize int    // records per upsert; default DefaultBatchSize
+	Trigger string // manual (default) or schedule
+	// ScheduledFor is the schedule slot of a scheduled run (import_runs.scheduled_for); zero for a manual run.
+	ScheduledFor time.Time
+	DryRun       bool // parse and count only; nothing is written and no lock is taken
+	BatchSize    int  // records per upsert; default DefaultBatchSize
 
 	// Reparse runs the adapter again on a file already in the file store, with no
 	// network access and no change detection: a normal run (same lock, duplicate
@@ -206,7 +208,7 @@ func Run(ctx context.Context, deps Deps, sourceID string, opts Options) (RunResu
 
 	res := RunResult{DryRun: opts.DryRun}
 	if !opts.DryRun {
-		id, err := deps.Store.CreateRun(ctx, sourceID, opts.Trigger)
+		id, err := deps.Store.CreateRunFor(ctx, sourceID, opts.Trigger, opts.ScheduledFor)
 		if err != nil {
 			return RunResult{}, fmt.Errorf("import %q: %w", sourceID, err)
 		}

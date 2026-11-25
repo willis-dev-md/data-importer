@@ -7,7 +7,9 @@
 | `GRPC_ADDR` | listen address, default `:8443` (all interfaces) |
 | `TLS_CERT_FILE` / `TLS_KEY_FILE` | server TLS; set both or neither (see [`importer serve`](#importer-serve)) |
 | `AUTH_TOKENS_FILE` | token -> roles/sources map |
-| `IMPORT_CONCURRENCY` | max simultaneous import runs (default 4) |
+| `IMPORT_CONCURRENCY` | max simultaneous scheduled import runs (default `2`); positive integer, otherwise exit 2; keep it at or below `DB_LOCK_MAX_CONNS` ([scheduler](#scheduler)) |
+| `SCHEDULER_ENABLED` | `importer serve` only: `true` (default) starts due scheduled runs; `false` serves gRPC only ([scheduler](#scheduler)) |
+| `SCHEDULER_POLL_INTERVAL` | `importer serve` only: how often the scheduler looks for due sources, default `30s`; Go duration from `100ms` to `1h`, otherwise exit 2 ([scheduler](#scheduler)) |
 | `SOURCES_DIR` | directory of source + mapping YAML; default for `importer sources apply --dir` |
 | `FILE_STORE_DIR` | directory that keeps fetched files by SHA-256 (`<dir>/<aa>/<sha256>`); default `data/files`, **relative to the working directory**; created if missing; not a directory = exit 2. Run from another directory and you get an empty store: a later `reparse` then fails with `stored file is missing`, so prefer an absolute path. No cleanup exists yet ([details](#importer-reparse)) |
 | `SCAN_LIMIT` | `importer serve` only: raw rows one `ListRecords` call may map, default `50000`; must be a positive integer, otherwise `importer serve` exits 2 before it connects to the database ([details](#importer-serve)) |
@@ -78,9 +80,111 @@ test "$rc" -eq 2
 
     importer run: DB_LOCK_CHECK_INTERVAL="1ms": want a Go duration between 10ms and 10m0s such as 5s
 
+## Scheduler
+
+`importer serve` runs the scheduler next to the gRPC server (task 022) and starts due scheduled runs by itself. A source
+with no `schedule`, or with `enabled: false`, is never started by it. Design: [design](design.md#scheduler); decisions:
+[ADR-0008](adr/0008-scheduler-loop.md) and [ADR-0007](adr/0007-schedule-engine.md).
+
+| Var | Default | Meaning |
+|---|---|---|
+| `SCHEDULER_ENABLED` | `true` | `false`: this replica serves gRPC only and starts no scheduled runs |
+| `SCHEDULER_POLL_INTERVAL` | `30s` | how often the scheduler looks for due sources; Go duration, `100ms` to `1h` |
+| `IMPORT_CONCURRENCY` | `2` | most scheduled runs at once in this process; positive integer. With the scheduler enabled, `serve` exits 2 when it is larger than `DB_LOCK_MAX_CONNS` (default `8`) |
+
+Invalid values exit 2 before any database connection is made. Real output, run with a closed database port so that
+nothing could be written:
+
+<!-- verify -->
+```bash
+go build -o bin/importer ./cmd/importer
+rc=0; SCHEDULER_POLL_INTERVAL=5 DATABASE_URL=postgres://postgres@127.0.0.1:1/x GRPC_ADDR=127.0.0.1:0 TLS_CERT_FILE= TLS_KEY_FILE= bin/importer serve || rc=$?
+test "$rc" -eq 2
+rc=0; SCHEDULER_ENABLED=false IMPORT_CONCURRENCY=0 DATABASE_URL=postgres://postgres@127.0.0.1:1/x GRPC_ADDR=127.0.0.1:0 TLS_CERT_FILE= TLS_KEY_FILE= bin/importer serve || rc=$?
+test "$rc" -eq 2
+```
+
+    importer serve: SCHEDULER_POLL_INTERVAL="5": want a Go duration between 100ms and 1h0m0s such as 30s
+    exit 2
+    importer serve: IMPORT_CONCURRENCY="0": want a positive integer
+    exit 2
+
+Real output of the connection budget check (`IMPORT_CONCURRENCY=9`, default `DB_LOCK_MAX_CONNS=8`, closed port; the
+`file store:` line comes first):
+
+    importer serve: file store: <directory>
+    importer serve: IMPORT_CONCURRENCY=9 is more than DB_LOCK_MAX_CONNS=8: raise DB_LOCK_MAX_CONNS or lower IMPORT_CONCURRENCY
+    exit 2
+
+### How it runs
+
+1. **Poll.** The first poll runs at start, then every `SCHEDULER_POLL_INTERVAL`. Each poll first sweeps abandoned runs
+   (the same rule as `importer run`: a `running` row is closed `failed` with `abandoned (process died)` only when its
+   source lock is free). A run of a killed replica is therefore closed by the next poll of any replica, and its slot runs once.
+2. **Claim.** Due sources (`enabled`, with a schedule, `next_run_at <= now`) are claimed in one short database
+   transaction, `FOR UPDATE SKIP LOCKED`, up to the free slots of `IMPORT_CONCURRENCY`. The claim moves `next_run_at` to
+   the next slot and sets `last_scheduled_at`. No lock is held during the import.
+3. **Run.** The import starts with `trigger=schedule` and `scheduled_for` = the slot. A jitter offset (`jitter:` in the
+   schedule) delays the start only; the slot does not move.
+- **Missed slots after downtime:** `on_missed: run_once` (default) runs once for the latest missed slot; `skip` runs
+  none ([ADR-0007](adr/0007-schedule-engine.md)).
+- **Overlap:** when the previous run of the source still holds its lock, the slot is skipped. The skip is logged at WARN
+  (`slot skipped, the previous run of this source is still running`); no run row is written.
+- **Failures:** a failed or aborted scheduled run is **not retried**; the next slot is the retry. A run that fails before
+  it starts (no lock connection within `DB_LOCK_WAIT`, a missing `token_env` variable, an unreadable source) leaves a
+  `failed` row with `trigger=schedule`, `scheduled_for` = the slot and the error text, so the lost slot is visible in
+  `schedule list`. The error names the variable, never its value. One bad source does not stop the others.
+
+### Replicas
+
+Any number of replicas can run `importer serve` against one database. The claim is in the database, so each slot runs
+once: a test with three schedulers and one due source starts exactly one run row for the slot. Set
+`SCHEDULER_ENABLED=false` on replicas that should only serve. Each replica needs `FILE_STORE_DIR` and the source's token
+variables in its own environment. The file store is a local directory: replicas on different hosts do not share it
+(UNVERIFIED: not tested across hosts).
+
+### Shutdown
+
+SIGTERM stops claiming. In-flight scheduled runs get the shutdown grace (10 s, the same as the gRPC server). Runs still
+going after that are cancelled and end `failed` with `cancelled: ...`, as a manual run does. Exit is 0 once every
+scheduler goroutine has finished. An unlock can wait up to 10 s for a lock check in flight on a hung connection, so
+exit can come up to 10 s after the grace period (see [design](design.md#9-failure-handling)). Validator measurement, not re-run here: SIGTERM exit 0, with the join taking about 11.5 s at worst.
+
+### `importer schedule list`
+
+    importer schedule list
+
+Prints one line per source: `ID ENABLED SCHEDULE TIMEZONE NEXT_RUN_AT LAST_SCHEDULED_AT LAST_RUN`. Times are UTC
+RFC3339; `-` means none; `manual` is shown for a source without a schedule; `LAST_RUN` is the status of the latest run
+with `(manual)` or `(schedule)` (UNVERIFIED: from the task log, not run here). It is read-only and works without `serve`.
+
+| Exit | Meaning |
+|---|---|
+| 0 | listed |
+| 1 | database error |
+| 2 | usage (extra argument) or `DATABASE_URL` not set |
+
+    $ env -u DATABASE_URL importer schedule list
+    importer schedule: DATABASE_URL is not set                                  (exit 2)
+    $ importer schedule
+    usage: importer schedule list                                               (exit 2)
+
+Real output on a throwaway database, after `sources apply` of the ONS example (its schedule is `monthly`, day 18 at
+09:30, Europe/London; `NEXT_RUN_AT` depends on the date); no run had happened, so `LAST_RUN` is `-`:
+
+    ID        ENABLED  SCHEDULE                    TIMEZONE       NEXT_RUN_AT           LAST_SCHEDULED_AT  LAST_RUN
+    ons-l55o  true     monthly on day 18 at 09:30  Europe/London  2026-12-18T09:30:00Z  -                  -
+
+### Not implemented
+
+Cron expressions, retries, per-host rate limiting, a metrics endpoint (separate task), source groups (M7b), and
+`http_json` sources (no adapter yet, as with `run`). The sweep wiring in `serve` has no serve-level test (follow-up,
+[roadmap](roadmap.md#hardening-backlog)).
+
 ## CLI
     importer migrate up
     importer serve
+    importer schedule list
     importer sources apply [--dir <dir>] [--schema <file>]
     importer run --source <id> [--dry-run]
     importer group plan|apply <group.yaml>
@@ -127,7 +231,7 @@ Layout (the naming used in `docs/examples/`): `<name>.source.yaml` with an optio
 
 Real output (ONS example, `location` pointing at `testdata/ons/l55o.csv`):
 
-    $ importer sources apply --dir src       -> ons-l55o: source created, mapping v1 created     (exit 0)
+    $ importer sources apply --dir src       -> ons-l55o: source created, mapping v1 created, next run <time>     (exit 0)
     $ importer sources apply --dir src       -> ons-l55o: source unchanged, mapping v1 unchanged (exit 0)
     $ # same file plus a comment line        -> ons-l55o: source unchanged, mapping v1 unchanged (exit 0)
     $ # mapping content changed              -> ons-l55o: source unchanged, mapping v2 created   (exit 0)
@@ -241,7 +345,7 @@ the value. File locations send no HTTP request, so `auth` is not used for them. 
 - That a redirect does not leak the token is covered by a unit test only.
 
 ### `importer serve`
-Runs the gRPC server (`dataimporter.v1.DataService`, `grpc.health.v1`, reflection) until SIGINT or SIGTERM. Takes no
+Runs the gRPC server (`dataimporter.v1.DataService`, `grpc.health.v1`, reflection) and, unless `SCHEDULER_ENABLED=false`, the scheduler ([scheduler](#scheduler)), until SIGINT or SIGTERM. Takes no
 arguments (`importer serve extra` prints `usage: importer serve`, exit 2). Needs `DATABASE_URL`. It serves the
 `DataService` methods `GetRecord` and `ListRecords` with mapping on read ([api](api.md#implemented-task-011)).
 The other services are not in the proto yet.
@@ -252,6 +356,7 @@ The other services are not in the proto yet.
 | `DATABASE_URL` | Postgres DSN; pinged for health |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE` | both set: serve TLS (minimum TLS 1.2); neither set: plaintext; only one: error |
 | `SCAN_LIMIT` | raw rows one `ListRecords` call maps, default `50000`; unset or empty means the default; must be a positive integer |
+| `SCHEDULER_ENABLED`, `SCHEDULER_POLL_INTERVAL`, `IMPORT_CONCURRENCY` | the scheduler ([details](#scheduler)); invalid values exit 2 |
 | `DB_MAX_CONNS`, `DB_LOCK_MAX_CONNS`, `DB_LOCK_WAIT` | pool and lock settings, validated at startup (exit 2 when invalid); see [connection pool and source locks](#connection-pool-and-source-locks). `serve` takes no source locks, but the WARN budget check counts `DB_LOCK_MAX_CONNS` |
 
 `SCAN_LIMIT` is checked at startup, before the database is opened. Real output (built into `bin/`, as `make build`
@@ -371,7 +476,7 @@ Invalid mapping (real output for a test file with several mistakes; abridged: se
     fields.period_end: REQUIRED_NOT_COVERED: required canonical field "period_end" is not mapped
                                                                            (exit 1)
 
-Scheduling: partly built. `importer sources apply` validates each `schedule`, stores it and sets `next_run_at` (task 021); a source with no schedule, or with `enabled: false`, has none. The loop that starts due runs is **not built yet** (task 022): `importer serve` does not run the scheduler, and `importer schedule list` does not exist yet. Until task 022, run a source with `importer run --source <id>`, or let an external cron call `importer run`. The planned design (task 022) is that several replicas are safe, with row locks plus a Postgres advisory lock per source. The CLI line for a scheduled source ends with `next run <time>` (UNVERIFIED: the text is from the task 021 log, not run here).
+Scheduling: `importer sources apply` validates each `schedule`, stores it and sets `next_run_at` (task 021); a source with no schedule, or with `enabled: false`, has none. `importer serve` starts the due runs ([scheduler](#scheduler), task 022), and `importer schedule list` shows them. A scheduled source's CLI line ends with `next run <time>`. `importer run --source <id>` still runs a source by hand.
 
 ## Observability
 - Structured JSON logs with `run_id` and `source_id`.

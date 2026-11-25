@@ -33,7 +33,7 @@ func TestServeConfigErrors(t *testing.T) {
 
 func TestServeStopsOnContextCancel(t *testing.T) {
 	url := testutil.NewDatabaseURL(t)
-	env := map[string]string{"DATABASE_URL": url, "GRPC_ADDR": "127.0.0.1:0"}
+	env := map[string]string{"DATABASE_URL": url, "GRPC_ADDR": "127.0.0.1:0", "FILE_STORE_DIR": t.TempDir()}
 	ctx, cancel := context.WithCancel(context.Background())
 	var errb bytes.Buffer
 	done := make(chan int, 1)
